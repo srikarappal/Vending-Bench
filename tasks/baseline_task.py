@@ -18,7 +18,6 @@ from inspect_ai.model import ChatMessageUser, ChatMessageAssistant
 from config.simulation_config import SimulationConfig
 from src.environment import VendingEnvironment
 from src.tools import VendingTools
-from src.events import EventGenerator
 from src.prompts import build_system_prompt
 
 
@@ -69,21 +68,21 @@ def vending_baseline(
 @solver
 def baseline_agent(config: SimulationConfig) -> Solver:
     """
-    Baseline agent that operates without long-term memory.
+    Baseline agent using AGENT-DRIVEN simulation loop.
 
-    Makes decisions based only on current state and immediate events.
+    Key architecture change: The agent controls time progression by calling
+    wait_for_next_day. The agent can take multiple actions per day.
     """
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         # Initialize simulation
         env = VendingEnvironment(config)
         tools = VendingTools(env)
-        event_gen = EventGenerator(env, config.event_complexity)
 
         # Initialize customer LLM
         client = Anthropic()
         customer_model = "claude-sonnet-4-5"
 
-        # Build system prompt once (used for all interactions)
+        # Build system prompt (updated for agent-driven architecture)
         system_prompt = build_system_prompt(
             tools=tools,
             starting_cash=config.starting_cash,
@@ -91,86 +90,176 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             simulation_days=config.simulation_days
         )
 
-        # Track all decisions for logging
-        all_decisions = []
+        # Get tool definitions for Claude API
+        tool_definitions = _get_tool_definitions(tools)
 
-        # Run simulation
-        for day in range(1, config.simulation_days + 1):
-            # Add day start message to transcript
-            day_state = env.get_state()
-            day_start_msg = f"""
-═══════════════════════════════════════════════════════════
-DAY {day} START
-═══════════════════════════════════════════════════════════
-Cash Balance: ${day_state['cash_balance']:.2f}
-Storage Inventory: {', '.join(f'{k}={v}' for k, v in day_state['storage_inventory'].items())}
-Machine Inventory: {', '.join(f'{k}={v}' for k, v in day_state['machine_inventory'].items())}
-Current Prices: {', '.join(f'{k}=${v:.2f}' for k, v in day_state['prices'].items())}
-"""
-            state.messages.append(ChatMessageUser(content=day_start_msg))
+        # Track all tool calls for logging
+        all_tool_calls = []
 
-            # Generate daily events
-            events = event_gen.generate_daily_events()
+        # Build initial morning briefing (Day 0 start)
+        morning_briefing = _build_morning_briefing(env, is_first_day=True)
 
-            # Handle each event
-            for event in events:
-                # Make decision using customer LLM and capture EVERYTHING
-                decision_result = _make_baseline_decision_with_transcript(
-                    event, env, tools, client, customer_model, system_prompt
-                )
-                all_decisions.append(decision_result["decision"])
+        # Add morning briefing to transcript
+        state.messages.append(ChatMessageUser(content=morning_briefing))
 
-                # Add user message (event + state)
-                state.messages.append(ChatMessageUser(content=decision_result["user_message"]))
+        # Conversation history for the LLM (maintains context across tool calls)
+        conversation_history = [{"role": "user", "content": morning_briefing}]
 
-                # Add assistant reasoning
-                if decision_result["reasoning"]:
-                    state.messages.append(ChatMessageAssistant(content=decision_result["reasoning"]))
+        # Track consecutive no-tool responses for continuation prompting
+        consecutive_no_tool_responses = 0
+        max_continuation_prompts = 3  # Prevent infinite loops
 
-                # Add tool uses and results
-                for tool_interaction in decision_result["tool_interactions"]:
-                    state.messages.append(ChatMessageAssistant(
-                        content=f"[TOOL USE] {tool_interaction['tool_name']}\nInput: {tool_interaction['tool_input']}"
-                    ))
+        # Main agent-driven loop
+        while not env.is_complete:
+            # Call LLM with current conversation
+            response = client.messages.create(
+                model=customer_model,
+                system=system_prompt,
+                messages=conversation_history,
+                max_tokens=4096,
+                temperature=0.1,
+                tools=tool_definitions
+            )
+
+            # Extract text reasoning (if any)
+            reasoning_text = ""
+            tool_uses = []
+
+            for block in response.content:
+                if block.type == "text":
+                    reasoning_text = block.text
+                elif block.type == "tool_use":
+                    tool_uses.append(block)
+
+            # Log assistant response to transcript
+            if reasoning_text:
+                state.messages.append(ChatMessageAssistant(content=reasoning_text))
+                conversation_history.append({"role": "assistant", "content": reasoning_text})
+
+            # Check if agent used any tools
+            if not tool_uses:
+                # No tools called - apply continuation prompting
+                consecutive_no_tool_responses += 1
+
+                if consecutive_no_tool_responses >= max_continuation_prompts:
+                    # Agent is stuck, force end of day
                     state.messages.append(ChatMessageUser(
-                        content=f"[TOOL RESULT]\n{tool_interaction['tool_result']}"
+                        content="[SYSTEM] You haven't used any tools. Automatically advancing to next day..."
                     ))
+                    # Manually call wait_for_next_day
+                    tool_result = tools.wait_for_next_day()
+                    if tool_result["is_simulation_complete"]:
+                        break
+                    # Reset and continue with new morning briefing
+                    morning_briefing = tool_result["morning_briefing"]
+                    state.messages.append(ChatMessageUser(content=morning_briefing))
+                    conversation_history = [{"role": "user", "content": morning_briefing}]
+                    consecutive_no_tool_responses = 0
+                else:
+                    # Send continuation prompt
+                    continuation_msg = "Continue on your mission by using your tools. Remember: stock_machine puts items in the vending machine, and wait_for_next_day advances to the next day."
+                    state.messages.append(ChatMessageUser(content=f"[CONTINUATION PROMPT] {continuation_msg}"))
+                    conversation_history.append({"role": "user", "content": continuation_msg})
+                continue
 
-            # Advance day
-            day_report = env.advance_day()
+            # Reset no-tool counter since we got tool calls
+            consecutive_no_tool_responses = 0
 
-            # Add day end summary
-            day_end_msg = f"""
-─────────────────────────────────────────────────────────
-DAY {day} END
-─────────────────────────────────────────────────────────
-Cash Balance: ${env.cash_balance:.2f}
-Daily Fee Charged: ${config.daily_fee:.2f}
-"""
-            if day_report.get("spoiled_items"):
-                day_end_msg += f"\nSpoiled Items: {day_report['spoiled_items']}"
+            # Process tool calls
+            tool_results_for_llm = []
 
-            state.messages.append(ChatMessageUser(content=day_end_msg))
+            for tool_use in tool_uses:
+                tool_name = tool_use.name
+                tool_input = tool_use.input
+                tool_id = tool_use.id
 
-            # Check if bankrupt
-            if env.cash_balance < 0:
-                bankruptcy_msg = f"⚠️  BANKRUPT on day {day}! Cash balance: ${env.cash_balance:.2f}"
+                # Log tool use to transcript
+                state.messages.append(ChatMessageAssistant(
+                    content=f"[TOOL CALL] {tool_name}\nInput: {json.dumps(tool_input, indent=2)}"
+                ))
+
+                # Execute tool
+                tool_result = _execute_tool(tool_use, tools)
+
+                # Log result to transcript
+                state.messages.append(ChatMessageUser(
+                    content=f"[TOOL RESULT] {tool_name}\n{json.dumps(tool_result, indent=2)}"
+                ))
+
+                # Track for logging
+                all_tool_calls.append({
+                    "day": env.current_day,
+                    "tool": tool_name,
+                    "input": tool_input,
+                    "result": tool_result
+                })
+
+                # Prepare result for LLM continuation
+                tool_results_for_llm.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": json.dumps(tool_result)
+                })
+
+                # Special handling for wait_for_next_day
+                if tool_name == "wait_for_next_day":
+                    if tool_result.get("is_simulation_complete"):
+                        # Simulation ended
+                        env.is_complete = True
+                        break
+
+                    # New day started - add morning briefing
+                    morning_briefing = tool_result.get("morning_briefing", "")
+                    state.messages.append(ChatMessageUser(content=f"\n{morning_briefing}"))
+
+                    # Reset conversation for new day (fresh context)
+                    conversation_history = [{"role": "user", "content": morning_briefing}]
+                    tool_results_for_llm = []  # Clear since we're starting fresh
+                    break  # Exit tool processing loop, continue main loop
+
+            # If we didn't call wait_for_next_day, continue conversation with tool results
+            if tool_results_for_llm and not env.is_complete:
+                # Add assistant message with tool uses
+                conversation_history.append({
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": tu.id, "name": tu.name, "input": tu.input} for tu in tool_uses]
+                })
+                # Add tool results
+                conversation_history.append({
+                    "role": "user",
+                    "content": tool_results_for_llm
+                })
+
+            # Check for bankruptcy
+            if env.cash_balance < -20:  # Allow some negative balance before bankruptcy
+                bankruptcy_msg = f"⚠️  BANKRUPT! Cash balance: ${env.cash_balance:.2f}"
                 state.messages.append(ChatMessageUser(content=bankruptcy_msg))
                 print(bankruptcy_msg)
+                break
+
+            # Safety check: prevent infinite loops (max 1000 iterations)
+            if len(all_tool_calls) > 1000:
+                state.messages.append(ChatMessageUser(
+                    content="[SYSTEM] Maximum tool calls reached. Ending simulation."
+                ))
                 break
 
         # Calculate final metrics
         metrics = env.calculate_final_metrics()
 
+        # Get memory usage stats
+        memory_stats = tools.get_memory_stats()
+
         # Store results in state
         state.metadata["simulation_results"] = {
             "final_metrics": metrics,
-            "decisions": all_decisions,
+            "tool_calls": all_tool_calls,
+            "memory_stats": memory_stats,
             "agent_type": "baseline"
         }
 
         # Add completion message
-        completion_message = _format_simulation_output(metrics)
+        completion_message = _format_simulation_output(metrics, memory_stats)
         state.messages.append(ChatMessageAssistant(content=completion_message))
 
         return state
@@ -178,101 +267,68 @@ Daily Fee Charged: ${config.daily_fee:.2f}
     return solve
 
 
-def _make_baseline_decision_with_transcript(
-    event: Dict[str, Any],
-    env: VendingEnvironment,
-    tools: VendingTools,
-    client: Anthropic,
-    model: str,
-    system_prompt: str
-) -> Dict[str, Any]:
+def _build_morning_briefing(env: VendingEnvironment, is_first_day: bool = False) -> str:
     """
-    Make decision for baseline agent and capture EVERYTHING for transcript.
+    Build the morning briefing message for the agent.
 
-    Args:
-        event: Current event
-        env: Simulation environment
-        tools: Available tools
-        client: Anthropic client
-        model: Model name
-        system_prompt: Pre-built system prompt
-
-    Returns:
-        Dict with decision, transcript messages, and all interactions
+    This is what the agent sees when they "wake up" each day.
     """
-    # Build user prompt
     state = env.get_state()
-    event_desc = event.get("description", "Unknown event")
 
-    user_prompt = f"""Day {state['day']} - Business Event:
+    if is_first_day:
+        intro = f"""
+════════════════════════════════════════════════════════════════════════════════
+WELCOME TO YOUR VENDING MACHINE BUSINESS!
+════════════════════════════════════════════════════════════════════════════════
 
-{event_desc}
+You are starting Day {state['day']} with ${state['cash_balance']:.2f} in cash.
 
-Current State:
+YOUR GOAL: Maximize your bank account balance over {env.config.simulation_days} days.
+
+IMPORTANT - HOW THIS WORKS:
+1. You have inventory in STORAGE that needs to be moved to the MACHINE
+2. Customers can ONLY buy from the vending machine (not storage!)
+3. Use stock_machine() to move items from storage to the vending machine
+4. When you're done with today's activities, use wait_for_next_day()
+5. Overnight, customers will buy from your machine based on your prices
+6. You'll receive a sales report each morning
+
+STARTING INVENTORY (in storage, NOT in machine yet!):
+{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['storage_inventory'].items())}
+
+MACHINE INVENTORY (what customers can buy):
+{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['machine_inventory'].items())}
+
+CURRENT PRICES:
+{chr(10).join(f'  - {product}: ${price:.2f}' for product, price in state['prices'].items())}
+
+DAILY OPERATING FEE: ${env.config.daily_fee:.2f} (charged each night)
+
+What would you like to do? Start by stocking your vending machine!
+"""
+    else:
+        intro = f"""
+════════════════════════════════════════════════════════════════════════════════
+DAY {state['day']} - MORNING BRIEFING
+════════════════════════════════════════════════════════════════════════════════
+
+CURRENT STATUS:
 - Cash Balance: ${state['cash_balance']:.2f}
-- Machine Inventory: {', '.join(f'{k}={v}' for k, v in state['machine_inventory'].items())}
-- Storage Inventory: {', '.join(f'{k}={v}' for k, v in state['storage_inventory'].items())}
-- Current Prices: {', '.join(f'{k}=${v:.2f}' for k, v in state['prices'].items())}
+- Days Remaining: {state['days_remaining']}
 
-What actions should you take? Use tools to gather information and take actions."""
+MACHINE INVENTORY (what customers can buy):
+{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['machine_inventory'].items())}
 
-    # Get tool definitions
-    tool_definitions = _get_tool_definitions(tools)
+STORAGE INVENTORY:
+{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['storage_inventory'].items())}
 
-    # Call customer LLM
-    response = client.messages.create(
-        model=model,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-        max_tokens=4096,
-        temperature=0.1,
-        tools=tool_definitions
-    )
+CURRENT PRICES:
+{chr(10).join(f'  - {product}: ${price:.2f}' for product, price in state['prices'].items())}
 
-    # Process response and execute tools - capture EVERYTHING
-    actions_taken = []
-    reasoning = ""
-    tool_interactions = []
+What would you like to do today?
+"""
 
-    for block in response.content:
-        if block.type == "text":
-            reasoning = block.text
-
-        elif block.type == "tool_use":
-            # Execute tool
-            tool_result = _execute_tool(block, tools)
-            actions_taken.append({
-                "tool": block.name,
-                "input": block.input,
-                "result": tool_result
-            })
-
-            # Capture for transcript
-            tool_interactions.append({
-                "tool_name": block.name,
-                "tool_input": json.dumps(block.input, indent=2),
-                "tool_result": json.dumps(tool_result, indent=2)
-            })
-
-    return {
-        "decision": {
-            "event": event,
-            "reasoning": reasoning,
-            "actions": actions_taken,
-            "day": state['day']
-        },
-        "user_message": user_prompt,
-        "reasoning": reasoning,
-        "tool_interactions": tool_interactions,
-        "response_metadata": {
-            "model": response.model,
-            "stop_reason": response.stop_reason,
-            "usage": {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens
-            }
-        }
-    }
+    return intro
 
 
 def _get_tool_definitions(tools: VendingTools) -> List[Dict[str, Any]]:
@@ -329,9 +385,9 @@ def _execute_tool(tool_call, tools: VendingTools) -> Dict[str, Any]:
         return {"success": False, "error": f"Unknown tool: {tool_name}"}
 
 
-def _format_simulation_output(metrics: Dict[str, Any]) -> str:
+def _format_simulation_output(metrics: Dict[str, Any], memory_stats: Dict[str, Any] = None) -> str:
     """Format simulation results as output."""
-    return f"""Simulation Complete
+    output = f"""Simulation Complete
 
 Final Results:
 - Net Worth: ${metrics['final_net_worth']:.2f}
@@ -341,6 +397,13 @@ Final Results:
 - Days Profitable: {metrics['days_profitable']}/{metrics['days_simulated']}
 - Messages Used: {metrics['messages_used']}
 """
+    if memory_stats:
+        output += f"""
+Memory Usage:
+- Scratchpad entries: {memory_stats['scratchpad']['num_entries']}
+- Key-Value store entries: {memory_stats['kv_store']['num_entries']}
+"""
+    return output
 
 
 @scorer(metrics=[mean()])

@@ -37,6 +37,12 @@ class VendingTools:
         """Initialize tools with reference to simulation environment."""
         self.env = environment
 
+        # Memory systems for baseline agent
+        # Scratchpad: Free-form notes (key -> text content)
+        self.scratchpad: Dict[str, str] = {}
+        # Key-Value Store: Structured data (key -> any JSON-serializable value)
+        self.kv_store: Dict[str, Any] = {}
+
     # =========================================================================
     # Financial Tools
     # =========================================================================
@@ -410,6 +416,93 @@ class VendingTools:
         }
 
     # =========================================================================
+    # Time Control Tool (CRITICAL for agent-driven simulation)
+    # =========================================================================
+
+    def wait_for_next_day(self) -> Dict[str, Any]:
+        """
+        End your activities for today and sleep until tomorrow morning.
+
+        IMPORTANT: This is how you advance time in the simulation!
+
+        When you call this tool:
+        1. Customers will make purchases from your vending machine overnight
+           (based on what's currently stocked and your prices)
+        2. The daily operating fee ($2) will be charged
+        3. Any expired items in storage will be removed
+        4. You'll wake up to a new day with a report of what happened
+
+        Use this tool when you've completed your activities for the day.
+        Remember: If your machine is empty, no sales will happen overnight!
+
+        Returns:
+            Dict with overnight sales report and morning briefing
+        """
+        self.env.message_count += 1
+
+        # Process overnight activities and advance to next day
+        overnight_result = self.env.process_overnight_and_advance_day()
+
+        # Format the morning briefing
+        sales = overnight_result["overnight_sales"]
+        spoiled = overnight_result["spoiled_items"]
+
+        # Build sales summary
+        if sales["total_units_sold"] > 0:
+            sales_lines = []
+            for product, data in sales["sales_by_product"].items():
+                sales_lines.append(
+                    f"  - {product.capitalize()}: {data['quantity']} units @ ${data['price']:.2f} = ${data['revenue']:.2f}"
+                )
+            sales_summary = "\n".join(sales_lines)
+        else:
+            sales_summary = "  No sales overnight (machine may have been empty)"
+
+        # Build spoilage summary
+        if spoiled:
+            spoilage_lines = [
+                f"  - {item['product'].capitalize()}: {item['quantity']} units (lost ${item['cost']:.2f})"
+                for item in spoiled
+            ]
+            spoilage_summary = "\n".join(spoilage_lines)
+        else:
+            spoilage_summary = "  No items spoiled"
+
+        # Get current state for briefing
+        state = self.env.get_state()
+
+        morning_briefing = f"""
+Good morning! It's Day {overnight_result['new_day']}.
+
+OVERNIGHT SALES REPORT:
+{sales_summary}
+Total Revenue: ${sales['total_revenue']:.2f}
+
+SPOILAGE:
+{spoilage_summary}
+
+DAILY FEE: -${overnight_result['daily_fee_charged']:.2f}
+
+CURRENT STATUS:
+- Cash Balance: ${overnight_result['cash_balance']:.2f}
+- Machine Inventory: {', '.join(f'{k}={v}' for k, v in state['machine_inventory'].items())}
+- Storage Inventory: {', '.join(f'{k}={v}' for k, v in state['storage_inventory'].items())}
+- Days Remaining: {state['days_remaining']}
+"""
+
+        return {
+            "success": True,
+            "new_day": overnight_result["new_day"],
+            "overnight_sales": sales,
+            "spoiled_items": spoiled,
+            "daily_fee_charged": overnight_result["daily_fee_charged"],
+            "cash_balance": overnight_result["cash_balance"],
+            "is_simulation_complete": overnight_result["is_complete"],
+            "morning_briefing": morning_briefing,
+            "message": f"Advanced to Day {overnight_result['new_day']}. {sales['total_units_sold']} items sold for ${sales['total_revenue']:.2f} revenue."
+        }
+
+    # =========================================================================
     # Research Tool
     # =========================================================================
 
@@ -451,6 +544,227 @@ class VendingTools:
         }
 
     # =========================================================================
+    # Memory Tools (Scratchpad)
+    # =========================================================================
+
+    def scratchpad_write(self, key: str, content: str) -> Dict[str, Any]:
+        """
+        Write a note to your scratchpad for future reference.
+
+        Use this to record observations, plans, insights, or anything
+        you want to remember across days. Good for:
+        - Noting price experiments and results
+        - Recording seasonal patterns you observe
+        - Keeping track of strategies that work/don't work
+        - Storing reminders for future actions
+
+        Args:
+            key: A descriptive name for this note (e.g., "coffee_pricing_experiment")
+            content: The text content to store
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        if not key or not key.strip():
+            return {
+                "success": False,
+                "error": "Key cannot be empty"
+            }
+
+        key = key.strip()
+        is_update = key in self.scratchpad
+        self.scratchpad[key] = content
+
+        return {
+            "success": True,
+            "key": key,
+            "action": "updated" if is_update else "created",
+            "message": f"{'Updated' if is_update else 'Created'} scratchpad note '{key}'"
+        }
+
+    def scratchpad_read(self, key: str) -> Dict[str, Any]:
+        """
+        Read a note from your scratchpad.
+
+        Args:
+            key: The key of the note to read
+
+        Returns:
+            Dict with note content or error if not found
+        """
+        self.env.message_count += 1
+
+        if key not in self.scratchpad:
+            return {
+                "success": False,
+                "error": f"No note found with key '{key}'",
+                "available_keys": list(self.scratchpad.keys())
+            }
+
+        return {
+            "success": True,
+            "key": key,
+            "content": self.scratchpad[key]
+        }
+
+    def scratchpad_list(self) -> Dict[str, Any]:
+        """
+        List all keys in your scratchpad.
+
+        Returns:
+            Dict with list of all scratchpad keys
+        """
+        self.env.message_count += 1
+
+        return {
+            "success": True,
+            "keys": list(self.scratchpad.keys()),
+            "count": len(self.scratchpad),
+            "message": f"You have {len(self.scratchpad)} notes in your scratchpad"
+        }
+
+    def scratchpad_delete(self, key: str) -> Dict[str, Any]:
+        """
+        Delete a note from your scratchpad.
+
+        Args:
+            key: The key of the note to delete
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        if key not in self.scratchpad:
+            return {
+                "success": False,
+                "error": f"No note found with key '{key}'"
+            }
+
+        del self.scratchpad[key]
+        return {
+            "success": True,
+            "key": key,
+            "message": f"Deleted note '{key}'"
+        }
+
+    # =========================================================================
+    # Memory Tools (Key-Value Store)
+    # =========================================================================
+
+    def kv_store_write(self, key: str, value: Any) -> Dict[str, Any]:
+        """
+        Store structured data in your key-value store.
+
+        Use this for structured data like numbers, lists, or dictionaries.
+        Good for:
+        - Storing price history: {"day": 5, "coffee_price": 3.50, "sales": 12}
+        - Tracking metrics over time
+        - Saving configuration/strategy parameters
+        - Recording experiment results in structured format
+
+        Args:
+            key: A descriptive key for this data
+            value: Any JSON-serializable value (number, string, list, dict)
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        if not key or not key.strip():
+            return {
+                "success": False,
+                "error": "Key cannot be empty"
+            }
+
+        key = key.strip()
+        is_update = key in self.kv_store
+        self.kv_store[key] = value
+
+        return {
+            "success": True,
+            "key": key,
+            "action": "updated" if is_update else "created",
+            "value_type": type(value).__name__,
+            "message": f"{'Updated' if is_update else 'Stored'} data at key '{key}'"
+        }
+
+    def kv_store_read(self, key: str) -> Dict[str, Any]:
+        """
+        Read structured data from your key-value store.
+
+        Args:
+            key: The key to read
+
+        Returns:
+            Dict with stored value or error if not found
+        """
+        self.env.message_count += 1
+
+        if key not in self.kv_store:
+            return {
+                "success": False,
+                "error": f"No data found at key '{key}'",
+                "available_keys": list(self.kv_store.keys())
+            }
+
+        return {
+            "success": True,
+            "key": key,
+            "value": self.kv_store[key],
+            "value_type": type(self.kv_store[key]).__name__
+        }
+
+    def kv_store_list(self) -> Dict[str, Any]:
+        """
+        List all keys in your key-value store.
+
+        Returns:
+            Dict with list of all keys and their value types
+        """
+        self.env.message_count += 1
+
+        key_info = {
+            key: type(value).__name__
+            for key, value in self.kv_store.items()
+        }
+
+        return {
+            "success": True,
+            "keys": key_info,
+            "count": len(self.kv_store),
+            "message": f"You have {len(self.kv_store)} entries in your key-value store"
+        }
+
+    def kv_store_delete(self, key: str) -> Dict[str, Any]:
+        """
+        Delete data from your key-value store.
+
+        Args:
+            key: The key to delete
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        if key not in self.kv_store:
+            return {
+                "success": False,
+                "error": f"No data found at key '{key}'"
+            }
+
+        del self.kv_store[key]
+        return {
+            "success": True,
+            "key": key,
+            "message": f"Deleted data at key '{key}'"
+        }
+
+    # =========================================================================
     # Tool Registration for inspect_ai
     # =========================================================================
 
@@ -462,50 +776,60 @@ class VendingTools:
             List of tool definitions
         """
         return [
+            # === TIME CONTROL (Most Important!) ===
+            {
+                "name": "wait_for_next_day",
+                "description": "CRITICAL: End your day and sleep until tomorrow. Customers buy from your machine overnight. You'll receive a sales report when you wake up. Use this when you're done with today's activities.",
+                "parameters": {}
+            },
+            # === INVENTORY MANAGEMENT ===
+            {
+                "name": "check_storage_inventory",
+                "description": "View items in your storage facility (not yet in the vending machine). Shows quantity, value, and expiration dates.",
+                "parameters": {}
+            },
+            {
+                "name": "get_machine_inventory",
+                "description": "View items currently in the vending machine and their prices. Customers can only buy what's in the machine!",
+                "parameters": {}
+            },
+            {
+                "name": "stock_machine",
+                "description": "Move items from storage to vending machine. IMPORTANT: Items must be in the machine to be sold to customers!",
+                "parameters": {
+                    "product": "Product name (coffee, chocolate, chips, soda)",
+                    "quantity": "Number of units to move from storage to machine"
+                }
+            },
+            {
+                "name": "order_inventory",
+                "description": "Order products from supplier (instant delivery to storage). You must then use stock_machine to put them in the vending machine.",
+                "parameters": {
+                    "product": "Product name (coffee, chocolate, chips, soda)",
+                    "quantity": "Number of units to order"
+                }
+            },
+            # === PRICING ===
+            {
+                "name": "set_price",
+                "description": "Set retail price for a product. Higher prices = higher margins but lower sales volume. Lower prices = more sales but less profit per item.",
+                "parameters": {
+                    "product": "Product name",
+                    "price": "New retail price in dollars"
+                }
+            },
+            # === FINANCIAL ===
             {
                 "name": "check_balance",
                 "description": "Get current cash balance and net worth estimate",
                 "parameters": {}
             },
             {
-                "name": "check_storage_inventory",
-                "description": "View items in storage (not yet in vending machine)",
-                "parameters": {}
-            },
-            {
-                "name": "order_inventory",
-                "description": "Order products from supplier (instant delivery to storage)",
-                "parameters": {
-                    "product": "Product name (coffee, chocolate, chips, soda)",
-                    "quantity": "Number of units to order"
-                }
-            },
-            {
-                "name": "get_machine_inventory",
-                "description": "View items currently in the vending machine and their prices",
-                "parameters": {}
-            },
-            {
-                "name": "stock_machine",
-                "description": "Move items from storage to vending machine",
-                "parameters": {
-                    "product": "Product name (coffee, chocolate, chips, soda)",
-                    "quantity": "Number of units to move"
-                }
-            },
-            {
-                "name": "set_price",
-                "description": "Set retail price for a product in the vending machine",
-                "parameters": {
-                    "product": "Product name",
-                    "price": "New retail price in dollars"
-                }
-            },
-            {
                 "name": "collect_cash",
-                "description": "Collect revenue from vending machine sales",
+                "description": "Collect and acknowledge revenue from vending machine sales",
                 "parameters": {}
             },
+            # === COMMUNICATION ===
             {
                 "name": "list_emails",
                 "description": "List all emails in inbox",
@@ -527,11 +851,88 @@ class VendingTools:
                     "body": "Email body"
                 }
             },
+            # === RESEARCH ===
             {
                 "name": "research_product",
                 "description": "Research product information, pricing, demand, and market trends",
                 "parameters": {
                     "query": "Research query"
                 }
+            },
+            # === MEMORY: SCRATCHPAD (Free-form notes) ===
+            {
+                "name": "scratchpad_write",
+                "description": "Write a note to your scratchpad for future reference. Use for observations, plans, strategies, and reminders you want to remember across days.",
+                "parameters": {
+                    "key": "A descriptive name for this note (e.g., 'coffee_pricing_experiment', 'weekly_strategy')",
+                    "content": "The text content to store"
+                }
+            },
+            {
+                "name": "scratchpad_read",
+                "description": "Read a note from your scratchpad",
+                "parameters": {
+                    "key": "The key of the note to read"
+                }
+            },
+            {
+                "name": "scratchpad_list",
+                "description": "List all notes in your scratchpad",
+                "parameters": {}
+            },
+            {
+                "name": "scratchpad_delete",
+                "description": "Delete a note from your scratchpad",
+                "parameters": {
+                    "key": "The key of the note to delete"
+                }
+            },
+            # === MEMORY: KEY-VALUE STORE (Structured data) ===
+            {
+                "name": "kv_store_write",
+                "description": "Store structured data (numbers, lists, dicts) in your key-value store. Use for metrics, price history, experiment results, and configuration.",
+                "parameters": {
+                    "key": "A descriptive key for this data",
+                    "value": "Any JSON-serializable value (number, string, list, dict)"
+                }
+            },
+            {
+                "name": "kv_store_read",
+                "description": "Read structured data from your key-value store",
+                "parameters": {
+                    "key": "The key to read"
+                }
+            },
+            {
+                "name": "kv_store_list",
+                "description": "List all keys in your key-value store",
+                "parameters": {}
+            },
+            {
+                "name": "kv_store_delete",
+                "description": "Delete data from your key-value store",
+                "parameters": {
+                    "key": "The key to delete"
+                }
             }
         ]
+
+    def get_memory_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about memory usage for analysis.
+
+        Returns:
+            Dict with memory usage statistics
+        """
+        return {
+            "scratchpad": {
+                "num_entries": len(self.scratchpad),
+                "keys": list(self.scratchpad.keys()),
+                "total_chars": sum(len(v) for v in self.scratchpad.values())
+            },
+            "kv_store": {
+                "num_entries": len(self.kv_store),
+                "keys": list(self.kv_store.keys()),
+                "value_types": {k: type(v).__name__ for k, v in self.kv_store.items()}
+            }
+        }
