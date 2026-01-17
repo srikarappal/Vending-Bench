@@ -1,0 +1,537 @@
+"""
+Agent tools for vending machine business operations.
+
+Based on Vending-Bench 2 paper specification.
+"""
+
+from typing import Dict, List, Any, Optional
+import uuid
+
+from src.environment import VendingEnvironment, InventoryItem
+from src.products import PRODUCT_CATALOG, get_product_info
+
+
+# Mock research database (Option A: Fast iteration)
+MOCK_RESEARCH_DB = {
+    "coffee prices": "Industry average: $1.50 supplier cost, $3.00 retail. Premium coffee can reach $4.00.",
+    "coffee demand": "Coffee shows stable demand year-round with slight increase in winter months. Relatively price-inelastic.",
+    "chocolate prices": "$0.75 supplier cost, $2.00 typical retail. Seasonal peaks during holidays.",
+    "chocolate demand": "Chocolate is moderately price-sensitive. Higher demand in winter, lower in summer.",
+    "chips prices": "$0.50 supplier cost, $1.50 typical retail. Consistent margins across brands.",
+    "chips demand": "Chips show steady demand with moderate price elasticity. Popular impulse purchase.",
+    "soda prices": "$0.60 supplier cost, $2.50 typical retail. Higher margins for premium brands.",
+    "soda demand": "Soda demand increases significantly in summer months. Moderately price-sensitive.",
+    "competitor pricing": "Typical vending machines price items $1.00-$3.50. Location-dependent.",
+    "popular snacks": "Top sellers: chips (high volume), chocolate (steady), protein bars (growing trend).",
+    "vending margins": "Successful vending operations target 40-60% gross margins. Watch spoilage costs.",
+    "inventory best practices": "Restock high-turnover items frequently. Monitor expiration dates. Stock 2-3 days of inventory in machine.",
+    "pricing strategy": "Balance margin and volume. Test price changes gradually. Monitor competitor pricing.",
+    "seasonal trends": "Hot beverages peak in winter (Nov-Feb). Cold beverages peak in summer (Jun-Aug)."
+}
+
+
+class VendingTools:
+    """Tools available to the agent for business operations."""
+
+    def __init__(self, environment: VendingEnvironment):
+        """Initialize tools with reference to simulation environment."""
+        self.env = environment
+
+    # =========================================================================
+    # Financial Tools
+    # =========================================================================
+
+    def check_balance(self) -> Dict[str, Any]:
+        """
+        Get current cash balance.
+
+        Returns:
+            Dict with cash balance and net worth estimate
+        """
+        self.env.message_count += 1
+
+        storage_value = sum(
+            sum(item.supplier_cost * item.quantity for item in items)
+            for items in self.env.storage_inventory.values()
+        )
+
+        return {
+            "success": True,
+            "cash_balance": self.env.cash_balance,
+            "storage_value": storage_value,
+            "estimated_net_worth": self.env.cash_balance + storage_value,
+            "day": self.env.current_day
+        }
+
+    def collect_cash(self) -> Dict[str, Any]:
+        """
+        Collect revenue from vending machine sales.
+
+        Note: In this simulation, sales are processed automatically each day.
+        This tool is mainly for checking/acknowledging revenue.
+
+        Returns:
+            Dict with cash collected (or status)
+        """
+        self.env.message_count += 1
+
+        # Get today's sales from transaction history
+        today_sales = [
+            t for t in self.env.transaction_history
+            if t.day == self.env.current_day and t.transaction_type == "sale"
+        ]
+
+        total_collected = sum(t.amount for t in today_sales)
+
+        return {
+            "success": True,
+            "amount_collected": total_collected,
+            "num_transactions": len(today_sales),
+            "day": self.env.current_day,
+            "message": f"Collected ${total_collected:.2f} from today's sales"
+        }
+
+    # =========================================================================
+    # Inventory Management Tools
+    # =========================================================================
+
+    def check_storage_inventory(self) -> Dict[str, Any]:
+        """
+        View items in storage (not yet in vending machine).
+
+        Returns:
+            Dict with storage inventory details
+        """
+        self.env.message_count += 1
+
+        inventory_details = {}
+        for product, items in self.env.storage_inventory.items():
+            total_qty = sum(item.quantity for item in items)
+            if total_qty > 0:
+                oldest_item = min(items, key=lambda x: x.purchase_date)
+                inventory_details[product] = {
+                    "quantity": total_qty,
+                    "value": sum(item.supplier_cost * item.quantity for item in items),
+                    "oldest_purchase_day": oldest_item.purchase_date,
+                    "expiration_day": oldest_item.expiration_day
+                }
+
+        return {
+            "success": True,
+            "storage_inventory": inventory_details,
+            "day": self.env.current_day
+        }
+
+    def order_inventory(self, product: str, quantity: int) -> Dict[str, Any]:
+        """
+        Order products from supplier (instant delivery to storage).
+
+        Args:
+            product: Product name
+            quantity: Number of units to order
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        # Validation
+        if product not in PRODUCT_CATALOG:
+            return {
+                "success": False,
+                "error": f"Unknown product: {product}. Available: {list(PRODUCT_CATALOG.keys())}"
+            }
+
+        if quantity <= 0:
+            return {
+                "success": False,
+                "error": "Quantity must be positive"
+            }
+
+        # Calculate cost
+        supplier_cost = PRODUCT_CATALOG[product]["supplier_cost"]
+        total_cost = quantity * supplier_cost
+
+        # Check if enough cash
+        if total_cost > self.env.cash_balance:
+            return {
+                "success": False,
+                "error": f"Insufficient funds. Need ${total_cost:.2f}, have ${self.env.cash_balance:.2f}"
+            }
+
+        # Deduct cash
+        self.env.cash_balance -= total_cost
+
+        # Add to storage (instant delivery in simplified version)
+        expiration_day = self.env.current_day + PRODUCT_CATALOG[product]["spoilage_days"]
+        new_item = InventoryItem(
+            product=product,
+            quantity=quantity,
+            purchase_date=self.env.current_day,
+            supplier_cost=supplier_cost,
+            expiration_day=expiration_day
+        )
+        self.env.storage_inventory[product].append(new_item)
+
+        # Record transaction
+        self.env._record_transaction(
+            transaction_type="purchase",
+            product=product,
+            quantity=quantity,
+            amount=-total_cost,
+            notes=f"Ordered {quantity} units of {product} from supplier"
+        )
+
+        return {
+            "success": True,
+            "product": product,
+            "quantity": quantity,
+            "cost": total_cost,
+            "unit_cost": supplier_cost,
+            "expiration_day": expiration_day,
+            "new_cash_balance": self.env.cash_balance,
+            "message": f"Ordered {quantity} units of {product} for ${total_cost:.2f}"
+        }
+
+    def get_machine_inventory(self) -> Dict[str, Any]:
+        """
+        View items currently in the vending machine.
+
+        Returns:
+            Dict with machine inventory and current prices
+        """
+        self.env.message_count += 1
+
+        return {
+            "success": True,
+            "machine_inventory": self.env.machine_inventory.copy(),
+            "current_prices": self.env.current_prices.copy(),
+            "day": self.env.current_day
+        }
+
+    def stock_machine(self, product: str, quantity: int) -> Dict[str, Any]:
+        """
+        Move items from storage to vending machine.
+
+        Args:
+            product: Product name
+            quantity: Number of units to move
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        # Validation
+        if product not in PRODUCT_CATALOG:
+            return {
+                "success": False,
+                "error": f"Unknown product: {product}. Available: {list(PRODUCT_CATALOG.keys())}"
+            }
+
+        if quantity <= 0:
+            return {
+                "success": False,
+                "error": "Quantity must be positive"
+            }
+
+        # Check storage availability
+        storage_items = self.env.storage_inventory[product]
+        total_in_storage = sum(item.quantity for item in storage_items)
+
+        if total_in_storage < quantity:
+            return {
+                "success": False,
+                "error": f"Insufficient storage inventory. Have {total_in_storage}, requested {quantity}"
+            }
+
+        # Move items (FIFO - oldest first)
+        remaining = quantity
+        items_to_remove = []
+
+        for item in storage_items:
+            if remaining <= 0:
+                break
+
+            if item.quantity <= remaining:
+                # Take entire item
+                remaining -= item.quantity
+                items_to_remove.append(item)
+            else:
+                # Take partial
+                item.quantity -= remaining
+                remaining = 0
+
+        # Remove fully consumed items
+        for item in items_to_remove:
+            storage_items.remove(item)
+
+        # Add to machine
+        self.env.machine_inventory[product] += quantity
+
+        return {
+            "success": True,
+            "product": product,
+            "quantity": quantity,
+            "machine_inventory_after": self.env.machine_inventory[product],
+            "storage_inventory_after": sum(item.quantity for item in storage_items),
+            "message": f"Stocked {quantity} units of {product} in machine"
+        }
+
+    # =========================================================================
+    # Pricing Tools
+    # =========================================================================
+
+    def set_price(self, product: str, price: float) -> Dict[str, Any]:
+        """
+        Set retail price for a product.
+
+        Args:
+            product: Product name
+            price: New retail price
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        if product not in PRODUCT_CATALOG:
+            return {
+                "success": False,
+                "error": f"Unknown product: {product}"
+            }
+
+        if price <= 0:
+            return {
+                "success": False,
+                "error": "Price must be positive"
+            }
+
+        old_price = self.env.current_prices[product]
+        self.env.current_prices[product] = price
+
+        # Calculate margin
+        supplier_cost = PRODUCT_CATALOG[product]["supplier_cost"]
+        margin = ((price - supplier_cost) / price) * 100 if price > 0 else 0
+
+        return {
+            "success": True,
+            "product": product,
+            "old_price": old_price,
+            "new_price": price,
+            "profit_margin": f"{margin:.1f}%",
+            "supplier_cost": supplier_cost,
+            "message": f"Updated {product} price: ${old_price:.2f} → ${price:.2f}"
+        }
+
+    # =========================================================================
+    # Email/Communication Tools
+    # =========================================================================
+
+    def read_email(self, email_id: str) -> Dict[str, Any]:
+        """
+        Read an email from inbox.
+
+        Args:
+            email_id: Email ID to read
+
+        Returns:
+            Dict with email content
+        """
+        self.env.message_count += 1
+
+        for email in self.env.email_inbox:
+            if email["id"] == email_id:
+                email["read"] = True
+                return {
+                    "success": True,
+                    "email": email
+                }
+
+        return {
+            "success": False,
+            "error": f"Email {email_id} not found"
+        }
+
+    def list_emails(self) -> Dict[str, Any]:
+        """
+        List all emails in inbox.
+
+        Returns:
+            Dict with email list
+        """
+        self.env.message_count += 1
+
+        return {
+            "success": True,
+            "emails": [
+                {
+                    "id": email["id"],
+                    "from": email["from"],
+                    "subject": email["subject"],
+                    "date": email["date"],
+                    "read": email.get("read", False)
+                }
+                for email in self.env.email_inbox
+            ],
+            "unread_count": sum(1 for e in self.env.email_inbox if not e.get("read", False))
+        }
+
+    def write_email(self, to: str, subject: str, body: str) -> Dict[str, Any]:
+        """
+        Send an email to supplier or customer.
+
+        Args:
+            to: Recipient email address
+            subject: Email subject
+            body: Email body
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        email = {
+            "id": str(uuid.uuid4())[:8],
+            "from": "agent@vendingbusiness.com",
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "date": self.env.current_day,
+            "sent": True
+        }
+
+        self.env.email_sent.append(email)
+
+        return {
+            "success": True,
+            "email_id": email["id"],
+            "message": f"Email sent to {to}"
+        }
+
+    # =========================================================================
+    # Research Tool
+    # =========================================================================
+
+    def research_product(self, query: str) -> Dict[str, Any]:
+        """
+        Research product information (mock implementation).
+
+        Args:
+            query: Research query
+
+        Returns:
+            Dict with research results
+        """
+        self.env.message_count += 1
+
+        # Search mock database
+        results = []
+        query_lower = query.lower()
+
+        for key, info in MOCK_RESEARCH_DB.items():
+            # Simple keyword matching
+            if any(word in query_lower for word in key.split()):
+                results.append({
+                    "topic": key,
+                    "information": info
+                })
+
+        if not results:
+            results = [{
+                "topic": "general",
+                "information": "No specific information found. Consider checking product catalog or supplier communications."
+            }]
+
+        return {
+            "success": True,
+            "query": query,
+            "results": results[:3],  # Top 3 results
+            "message": f"Found {len(results)} relevant results"
+        }
+
+    # =========================================================================
+    # Tool Registration for inspect_ai
+    # =========================================================================
+
+    def get_tool_list(self) -> List[Dict[str, Any]]:
+        """
+        Get list of available tools for inspect_ai.
+
+        Returns:
+            List of tool definitions
+        """
+        return [
+            {
+                "name": "check_balance",
+                "description": "Get current cash balance and net worth estimate",
+                "parameters": {}
+            },
+            {
+                "name": "check_storage_inventory",
+                "description": "View items in storage (not yet in vending machine)",
+                "parameters": {}
+            },
+            {
+                "name": "order_inventory",
+                "description": "Order products from supplier (instant delivery to storage)",
+                "parameters": {
+                    "product": "Product name (coffee, chocolate, chips, soda)",
+                    "quantity": "Number of units to order"
+                }
+            },
+            {
+                "name": "get_machine_inventory",
+                "description": "View items currently in the vending machine and their prices",
+                "parameters": {}
+            },
+            {
+                "name": "stock_machine",
+                "description": "Move items from storage to vending machine",
+                "parameters": {
+                    "product": "Product name (coffee, chocolate, chips, soda)",
+                    "quantity": "Number of units to move"
+                }
+            },
+            {
+                "name": "set_price",
+                "description": "Set retail price for a product in the vending machine",
+                "parameters": {
+                    "product": "Product name",
+                    "price": "New retail price in dollars"
+                }
+            },
+            {
+                "name": "collect_cash",
+                "description": "Collect revenue from vending machine sales",
+                "parameters": {}
+            },
+            {
+                "name": "list_emails",
+                "description": "List all emails in inbox",
+                "parameters": {}
+            },
+            {
+                "name": "read_email",
+                "description": "Read a specific email",
+                "parameters": {
+                    "email_id": "Email ID to read"
+                }
+            },
+            {
+                "name": "write_email",
+                "description": "Send an email to supplier or customer",
+                "parameters": {
+                    "to": "Recipient email address",
+                    "subject": "Email subject",
+                    "body": "Email body"
+                }
+            },
+            {
+                "name": "research_product",
+                "description": "Research product information, pricing, demand, and market trends",
+                "parameters": {
+                    "query": "Research query"
+                }
+            }
+        ]
