@@ -117,9 +117,114 @@ class VendingEnvironment:
             )
             self.storage_inventory[product].append(starter_item)
 
+    def process_overnight_and_advance_day(self) -> Dict[str, Any]:
+        """
+        Process overnight activities and advance to the next day.
+
+        This is the core of the agent-driven simulation loop:
+        1. Process customer purchases based on machine inventory
+        2. Charge daily operating fee
+        3. Process spoilage
+        4. Advance to the next day
+        5. Generate morning briefing
+
+        Returns:
+            Dictionary with overnight sales report and morning briefing
+        """
+        # 1. Process overnight customer sales
+        overnight_sales = self._process_overnight_sales()
+
+        # 2. Advance to next day
+        self.current_day += 1
+
+        # 3. Charge daily operating fee
+        self._charge_daily_fee()
+
+        # 4. Check for spoilage
+        spoiled = self._process_spoilage()
+
+        # 5. Generate daily report
+        report = self._log_daily_report()
+
+        # 6. Check if simulation is complete
+        if self.current_day >= self.config.simulation_days:
+            self.is_complete = True
+
+        return {
+            "overnight_sales": overnight_sales,
+            "spoiled_items": spoiled,
+            "daily_fee_charged": self.config.daily_fee,
+            "new_day": self.current_day,
+            "cash_balance": self.cash_balance,
+            "is_complete": self.is_complete
+        }
+
+    def _process_overnight_sales(self) -> Dict[str, Any]:
+        """
+        Process customer purchases overnight based on machine inventory and prices.
+
+        Returns:
+            Dictionary with sales details
+        """
+        from src.products import calculate_demand, get_seasonal_factor
+
+        sales = {}
+        total_revenue = 0.0
+        total_units_sold = 0
+
+        for product in PRODUCT_CATALOG.keys():
+            # Check if product is available in machine
+            available = self.machine_inventory[product]
+            if available == 0:
+                continue
+
+            # Calculate demand based on price and season
+            price = self.current_prices[product]
+            seasonal = get_seasonal_factor(product, self.current_day)
+            demand = calculate_demand(product, price, self.current_day, seasonal)
+
+            # Actual sales = min(demand, available inventory)
+            actual_sales = min(demand, available)
+
+            if actual_sales > 0:
+                # Calculate revenue
+                revenue = actual_sales * price
+
+                # Record the sale
+                sales[product] = {
+                    "quantity": actual_sales,
+                    "price": price,
+                    "revenue": revenue
+                }
+                total_revenue += revenue
+                total_units_sold += actual_sales
+
+                # Update machine inventory
+                self.machine_inventory[product] -= actual_sales
+
+                # Add to cash balance
+                self.cash_balance += revenue
+
+                # Record transaction
+                self._record_transaction(
+                    transaction_type="sale",
+                    product=product,
+                    quantity=actual_sales,
+                    amount=revenue,
+                    notes=f"Overnight sales: {actual_sales} units at ${price:.2f}"
+                )
+
+        return {
+            "sales_by_product": sales,
+            "total_revenue": total_revenue,
+            "total_units_sold": total_units_sold
+        }
+
     def advance_day(self) -> Dict[str, Any]:
         """
-        Advance simulation by one day.
+        Advance simulation by one day (legacy method for backwards compatibility).
+
+        NOTE: For the agent-driven loop, use process_overnight_and_advance_day() instead.
 
         Returns:
             Dictionary with day summary
