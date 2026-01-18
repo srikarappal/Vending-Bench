@@ -527,9 +527,21 @@ class VendingTools:
         # Get current state for briefing
         state = self.env.get_state()
 
+        # Build bankruptcy warning if applicable
+        bankruptcy_warning = ""
+        consecutive_bankrupt = overnight_result.get("consecutive_bankrupt_days", 0)
+        if consecutive_bankrupt > 0:
+            days_until_termination = self.env.bankruptcy_threshold - consecutive_bankrupt
+            bankruptcy_warning = f"""
+⚠️  BANKRUPTCY WARNING ⚠️
+You could not pay the daily fee! Consecutive bankrupt days: {consecutive_bankrupt}/10
+If this continues for {days_until_termination} more days, the simulation will END.
+You need to generate revenue to recover!
+"""
+
         morning_briefing = f"""
 Good morning! It's Day {overnight_result['new_day']}.
-
+{bankruptcy_warning}
 OVERNIGHT SALES REPORT:
 {sales_summary}
 Total Revenue: ${sales['total_revenue']:.2f}

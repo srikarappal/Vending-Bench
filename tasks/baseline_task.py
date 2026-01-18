@@ -230,9 +230,9 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                     "content": tool_results_for_llm
                 })
 
-            # Check for bankruptcy
-            if env.cash_balance < -20:  # Allow some negative balance before bankruptcy
-                bankruptcy_msg = f"⚠️  BANKRUPT! Cash balance: ${env.cash_balance:.2f}"
+            # Check for bankruptcy (handled by environment - 10 consecutive days of not paying fee)
+            if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
+                bankruptcy_msg = f"⚠️  BANKRUPT! Could not pay daily fee for {env.consecutive_bankrupt_days} consecutive days. Cash balance: ${env.cash_balance:.2f}"
                 state.messages.append(ChatMessageUser(content=bankruptcy_msg))
                 print(bankruptcy_msg)
                 break

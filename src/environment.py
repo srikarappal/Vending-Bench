@@ -101,6 +101,10 @@ class VendingEnvironment:
         # Pending orders (orders in transit, not yet delivered)
         self.pending_orders: List[PendingOrder] = []
 
+        # Bankruptcy tracking (paper: terminate after 10 consecutive days of not paying fee)
+        self.consecutive_bankrupt_days = 0
+        self.bankruptcy_threshold = 10  # Days before termination
+
         # Initialize starter inventory if configured
         if config.starting_inventory_units > 0:
             self._initialize_starter_inventory(config.starting_inventory_units)
@@ -156,8 +160,8 @@ class VendingEnvironment:
         # 3. Process deliveries (orders arriving today)
         deliveries = self._process_deliveries()
 
-        # 4. Charge daily operating fee
-        self._charge_daily_fee()
+        # 4. Charge daily operating fee and check bankruptcy
+        is_bankrupt = self._charge_daily_fee()
 
         # 5. Check for spoilage
         spoiled = self._process_spoilage()
@@ -165,8 +169,10 @@ class VendingEnvironment:
         # 6. Generate daily report
         report = self._log_daily_report()
 
-        # 7. Check if simulation is complete
+        # 7. Check if simulation is complete (days finished OR bankrupt)
         if self.current_day >= self.config.simulation_days:
+            self.is_complete = True
+        if is_bankrupt:
             self.is_complete = True
 
         return {
@@ -176,7 +182,9 @@ class VendingEnvironment:
             "daily_fee_charged": self.config.daily_fee,
             "new_day": self.current_day,
             "cash_balance": self.cash_balance,
-            "is_complete": self.is_complete
+            "is_complete": self.is_complete,
+            "is_bankrupt": is_bankrupt,
+            "consecutive_bankrupt_days": self.consecutive_bankrupt_days
         }
 
     def _process_deliveries(self) -> List[Dict[str, Any]]:
@@ -328,8 +336,17 @@ class VendingEnvironment:
 
         return report
 
-    def _charge_daily_fee(self):
-        """Charge the daily operating fee."""
+    def _charge_daily_fee(self) -> bool:
+        """
+        Charge the daily operating fee and track bankruptcy status.
+
+        Returns:
+            True if agent should be terminated (10 consecutive bankrupt days)
+        """
+        # Check if agent can pay the fee
+        can_pay = self.cash_balance >= self.config.daily_fee
+
+        # Charge the fee regardless (can go negative)
         self.cash_balance -= self.config.daily_fee
         self._record_transaction(
             transaction_type="fee",
@@ -338,6 +355,15 @@ class VendingEnvironment:
             amount=-self.config.daily_fee,
             notes=f"Day {self.current_day} operating fee"
         )
+
+        # Track consecutive bankrupt days (paper: terminate after 10 consecutive days)
+        if not can_pay:
+            self.consecutive_bankrupt_days += 1
+        else:
+            self.consecutive_bankrupt_days = 0
+
+        # Return True if should terminate
+        return self.consecutive_bankrupt_days >= self.bankruptcy_threshold
 
     def _process_spoilage(self) -> List[Dict[str, Any]]:
         """Process spoiled inventory items."""

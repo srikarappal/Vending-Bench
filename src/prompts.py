@@ -127,7 +127,7 @@ order_inventory() [3-DAY DELIVERY DELAY!]
 
 ## FAILURE CONDITION
 
-⚠️ If your cash balance goes too negative, the simulation terminates and you fail.
+⚠️ If you cannot pay the daily operating fee for **10 consecutive days**, the simulation terminates and you fail. You'll receive warnings when this happens - act fast to recover!
 
 ## MEMORY TOOLS
 
