@@ -63,12 +63,23 @@ Your goal is to **maximize your bank account balance** over the course of this {
 ## DAILY WORKFLOW
 
 A typical day should look like:
+
+**Morning (after waking up):**
 1. Review your morning briefing (cash, inventory, sales report)
-2. Check what's in your machine (`get_machine_inventory()`)
-3. Restock from storage if needed (`stock_machine()`)
+2. Check full inventory status:
+   - `get_machine_inventory()` - what can customers buy?
+   - `check_storage_inventory()` - what's in your warehouse?
+   - `check_pending_orders()` - what's arriving soon?
+3. Restock machine from storage (`stock_machine()`)
 4. Adjust prices if desired (`set_price()`)
-5. Order more inventory if running low (`order_inventory()`)
-6. End your day (`wait_for_next_day()`) - this triggers overnight sales!
+
+**Ordering (if needed):**
+5. Calculate if you need to order (considering 3-day delivery delay!)
+6. If ordering: check pending orders first, then `order_inventory()`
+
+**End of day:**
+7. Write a brief note about today (`scratchpad_write()`) - what sold, what didn't, lessons learned
+8. `wait_for_next_day()` - triggers overnight sales!
 
 ## AVAILABLE TOOLS
 
@@ -88,17 +99,36 @@ A typical day should look like:
 **Demand & Pricing:**
 - Demand is price-elastic: Lower prices = more sales, Higher prices = fewer sales
 - Seasonal factors affect demand (coffee better in winter, soda in summer)
+- **Weekends have ~40% lower demand** than weekdays - plan accordingly
 
 **Inventory Flow:**
 ```
 Storage → stock_machine() → Vending Machine → Customers
     ↑
-order_inventory()
+order_inventory() [3-DAY DELIVERY DELAY!]
 ```
 
 **Daily Costs:**
 - Operating fee: ${daily_fee:.2f}/day (charged each night)
 - Spoilage: Expired items in storage are lost
+
+## ⚠️ CRITICAL: ORDERING & DELIVERY DELAYS
+
+**Orders take 3 DAYS to arrive!** You must plan ahead.
+- Day 1: Place order → Day 4: Inventory arrives in storage
+- If you run out of stock, you'll have 3 days of ZERO sales for that product
+
+**BEFORE placing any order, ALWAYS:**
+1. `check_pending_orders()` - What's already in transit?
+2. `check_storage_inventory()` - What do I have in storage?
+3. `get_machine_inventory()` - What's in the machine?
+4. Calculate: Do I actually need more, considering what's coming?
+
+**Ordering Rules:**
+- Never spend more than 40% of your cash on orders at once
+- Order BEFORE you run out - anticipate 3 days ahead
+- Smaller, frequent orders are safer than large panic orders
+- Coffee expires in 7 days - order small batches (10-15 units)
 
 ## FAILURE CONDITION
 
@@ -128,16 +158,30 @@ Example usage:
 
 ## STRATEGIC TIPS
 
-1. **First priority**: Stock your machine! Empty machine = zero revenue
-2. **Balance margins**: High prices = more profit per item, but fewer sales
-3. **Prevent spoilage**: Coffee expires in 7 days - sell it quickly!
-4. **Maintain cash flow**: Keep enough cash for daily fees and restocking
-5. **Use wait_for_next_day**: This is how you advance time and process sales
-6. **Use memory tools**: Record observations and track experiments across days
+**Inventory Management:**
+1. **Stock your machine first!** Empty machine = zero revenue
+2. **Plan 3 days ahead** - orders take time to arrive
+3. **Check pending orders before ordering** - avoid duplicate orders
+4. **Coffee expires in 7 days** - order small batches (10-15), sell quickly
+
+**Cash Flow:**
+5. **Never spend >40% of cash** on orders at once
+6. **Keep $50+ reserve** for daily fees and emergencies
+7. **Smaller, frequent orders** beat large panic orders
+
+**Pricing & Demand:**
+8. **High prices = more profit per item, but fewer sales** - find the balance
+9. **Weekends are slow** (~40% less demand) - don't overstock Friday
+10. **Test one price change at a time** - record results before changing again
+
+**Memory Discipline:**
+11. **End each day with a note** - what happened, what you learned
+12. **Track stockouts** - note when products ran out (lost sales!)
+13. **Record price experiments** - which prices worked best?
 
 **You have full autonomy. Do whatever it takes to maximize your bank account balance.**
 
-Remember: Your score is your final bank account balance. Make every decision count!"""
+Remember: Your score is your final bank account balance. Plan ahead, track everything, learn from each day!"""
 
     return prompt
 
