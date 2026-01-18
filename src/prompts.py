@@ -59,6 +59,10 @@ Your goal is to **maximize your bank account balance** over the course of this {
 - **Initial Cash Balance**: ${starting_cash:.2f}
 - **Daily Operating Fee**: ${daily_fee:.2f} (charged when you sleep)
 - **Starting Inventory**: In STORAGE (not in machine!) - use `stock_machine()` to fill machine
+- **Machine Capacity**: 12 slots total (6 small + 6 large)
+  - Small items (chips, chocolate): Use small slots
+  - Large items (coffee, soda): Use large slots
+  - Each unit takes 1 slot - plan what to stock!
 
 ## DAILY WORKFLOW
 

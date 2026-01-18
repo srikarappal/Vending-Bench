@@ -15,6 +15,14 @@ import random
 import math
 
 
+# Machine capacity configuration (paper: 4 rows x 3 slots = 12 total)
+# 2 rows for small items, 2 rows for large items
+MACHINE_CONFIG = {
+    "small_slots": 6,   # 2 rows × 3 slots for small items
+    "large_slots": 6,   # 2 rows × 3 slots for large items
+    "total_slots": 12,
+}
+
 # Product catalog with realistic economics
 # Base sales calibrated to match VendingBench difficulty (~10-20 total units/day)
 PRODUCT_CATALOG = {
@@ -25,7 +33,8 @@ PRODUCT_CATALOG = {
         "price_elasticity": -1.8,     # Elastic - demand sensitive to price
         "spoilage_days": 7,
         "base_sales": 4,              # Base units/day at reference price (lowered from 15)
-        "category": "hot_beverage"
+        "category": "hot_beverage",
+        "size": "large"               # Coffee cups take more space
     },
     "chocolate": {
         "name": "Chocolate Bar",
@@ -34,7 +43,8 @@ PRODUCT_CATALOG = {
         "price_elasticity": -1.5,
         "spoilage_days": 90,
         "base_sales": 5,              # Lowered from 20
-        "category": "snack"
+        "category": "snack",
+        "size": "small"               # Chocolate bars are small
     },
     "chips": {
         "name": "Chips",
@@ -43,7 +53,8 @@ PRODUCT_CATALOG = {
         "price_elasticity": -1.2,
         "spoilage_days": 60,
         "base_sales": 6,              # Lowered from 25
-        "category": "snack"
+        "category": "snack",
+        "size": "small"               # Chip bags are small
     },
     "soda": {
         "name": "Soda",
@@ -52,7 +63,8 @@ PRODUCT_CATALOG = {
         "price_elasticity": -1.4,
         "spoilage_days": 180,
         "base_sales": 5,              # Lowered from 30
-        "category": "cold_beverage"
+        "category": "cold_beverage",
+        "size": "large"               # Soda bottles/cans are large
     }
 }
 

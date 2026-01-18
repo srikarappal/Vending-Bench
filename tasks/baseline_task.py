@@ -109,6 +109,14 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         consecutive_no_tool_responses = 0
         max_continuation_prompts = 3  # Prevent infinite loops
 
+        # Progress logging - start
+        print(f"\n{'='*60}")
+        print(f"VENDING SIMULATION STARTED")
+        print(f"  Model: {customer_model}")
+        print(f"  Days: {config.simulation_days} | Starting Cash: ${config.starting_cash:.2f}")
+        print(f"  Machine Capacity: 12 slots (6 small + 6 large)")
+        print(f"{'='*60}")
+
         # Main agent-driven loop
         while not env.is_complete:
             # Call LLM with current conversation
@@ -203,9 +211,18 @@ def baseline_agent(config: SimulationConfig) -> Solver:
 
                 # Special handling for wait_for_next_day
                 if tool_name == "wait_for_next_day":
+                    # Progress logging
+                    sales = tool_result.get("overnight_sales", {})
+                    new_day = tool_result.get("new_day", "?")
+                    cash = tool_result.get("cash_balance", 0)
+                    revenue = sales.get("total_revenue", 0)
+                    units = sales.get("total_units_sold", 0)
+                    print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools")
+
                     if tool_result.get("is_simulation_complete"):
                         # Simulation ended
                         env.is_complete = True
+                        print(f"  Simulation complete at Day {new_day}")
                         break
 
                     # New day started - add morning briefing
@@ -249,6 +266,16 @@ def baseline_agent(config: SimulationConfig) -> Solver:
 
         # Get memory usage stats
         memory_stats = tools.get_memory_stats()
+
+        # Progress logging - final summary
+        print(f"\n{'='*60}")
+        print(f"SIMULATION COMPLETE")
+        print(f"  Final Net Worth: ${metrics['final_net_worth']:.2f}")
+        print(f"  Profit/Loss: ${metrics['profit_loss']:.2f}")
+        print(f"  Total Revenue: ${metrics['total_revenue']:.2f}")
+        print(f"  Days Simulated: {metrics['days_simulated']}")
+        print(f"  Total Tool Calls: {len(all_tool_calls)}")
+        print(f"{'='*60}\n")
 
         # Store results in state
         state.metadata["simulation_results"] = {

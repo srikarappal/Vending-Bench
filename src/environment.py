@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import json
 
-from src.products import PRODUCT_CATALOG, calculate_demand, get_seasonal_factor
+from src.products import PRODUCT_CATALOG, MACHINE_CONFIG, calculate_demand, get_seasonal_factor
 from config.simulation_config import SimulationConfig
 
 
@@ -82,6 +82,12 @@ class VendingEnvironment:
         self.machine_inventory: Dict[str, int] = {
             product: 0 for product in PRODUCT_CATALOG.keys()
         }
+
+        # Machine slot capacity (paper: 4 rows × 3 slots = 12 total)
+        self.machine_small_slots_used = 0
+        self.machine_large_slots_used = 0
+        self.machine_small_slots_max = MACHINE_CONFIG["small_slots"]  # 6
+        self.machine_large_slots_max = MACHINE_CONFIG["large_slots"]  # 6
 
         # Pricing (product -> price)
         self.current_prices: Dict[str, float] = {
@@ -288,8 +294,8 @@ class VendingEnvironment:
                 total_revenue += revenue
                 total_units_sold += actual_sales
 
-                # Update machine inventory
-                self.machine_inventory[product] -= actual_sales
+                # Update machine inventory and slot usage
+                self.remove_from_machine(product, actual_sales)
 
                 # Add to cash balance
                 self.cash_balance += revenue
@@ -455,8 +461,92 @@ class VendingEnvironment:
             "prices": self.current_prices.copy(),
             "message_count": self.message_count,
             "is_complete": self.is_complete,
-            "days_remaining": self.config.simulation_days - self.current_day
+            "days_remaining": self.config.simulation_days - self.current_day,
+            "machine_slots": self.get_machine_slot_status()
         }
+
+    def get_machine_slot_status(self) -> Dict[str, Any]:
+        """Get current machine slot usage."""
+        return {
+            "small_slots_used": self.machine_small_slots_used,
+            "small_slots_max": self.machine_small_slots_max,
+            "small_slots_available": self.machine_small_slots_max - self.machine_small_slots_used,
+            "large_slots_used": self.machine_large_slots_used,
+            "large_slots_max": self.machine_large_slots_max,
+            "large_slots_available": self.machine_large_slots_max - self.machine_large_slots_used,
+            "total_used": self.machine_small_slots_used + self.machine_large_slots_used,
+            "total_max": self.machine_small_slots_max + self.machine_large_slots_max
+        }
+
+    def can_stock_product(self, product: str, quantity: int) -> tuple:
+        """
+        Check if product can be stocked in machine.
+
+        Args:
+            product: Product name
+            quantity: Quantity to stock
+
+        Returns:
+            Tuple of (can_stock: bool, reason: str, max_stockable: int)
+        """
+        if product not in PRODUCT_CATALOG:
+            return False, f"Unknown product: {product}", 0
+
+        product_size = PRODUCT_CATALOG[product]["size"]
+
+        if product_size == "small":
+            available = self.machine_small_slots_max - self.machine_small_slots_used
+        else:  # large
+            available = self.machine_large_slots_max - self.machine_large_slots_used
+
+        if quantity <= available:
+            return True, "OK", quantity
+        elif available > 0:
+            return False, f"Only {available} {product_size} slots available (requested {quantity})", available
+        else:
+            return False, f"No {product_size} slots available in machine", 0
+
+    def add_to_machine(self, product: str, quantity: int) -> bool:
+        """
+        Add items to machine and update slot usage.
+
+        Args:
+            product: Product name
+            quantity: Quantity to add
+
+        Returns:
+            True if successful
+        """
+        product_size = PRODUCT_CATALOG[product]["size"]
+
+        if product_size == "small":
+            self.machine_small_slots_used += quantity
+        else:
+            self.machine_large_slots_used += quantity
+
+        self.machine_inventory[product] += quantity
+        return True
+
+    def remove_from_machine(self, product: str, quantity: int) -> bool:
+        """
+        Remove items from machine and update slot usage (called on sales).
+
+        Args:
+            product: Product name
+            quantity: Quantity removed (sold)
+
+        Returns:
+            True if successful
+        """
+        product_size = PRODUCT_CATALOG[product]["size"]
+
+        if product_size == "small":
+            self.machine_small_slots_used = max(0, self.machine_small_slots_used - quantity)
+        else:
+            self.machine_large_slots_used = max(0, self.machine_large_slots_used - quantity)
+
+        self.machine_inventory[product] = max(0, self.machine_inventory[product] - quantity)
+        return True
 
     def calculate_final_metrics(self) -> Dict[str, Any]:
         """Calculate final business metrics."""

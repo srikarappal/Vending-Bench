@@ -238,20 +238,29 @@ class VendingTools:
         View items currently in the vending machine.
 
         Returns:
-            Dict with machine inventory and current prices
+            Dict with machine inventory, prices, and slot usage
         """
         self.env.message_count += 1
+
+        slot_status = self.env.get_machine_slot_status()
 
         return {
             "success": True,
             "machine_inventory": self.env.machine_inventory.copy(),
             "current_prices": self.env.current_prices.copy(),
-            "day": self.env.current_day
+            "slot_status": slot_status,
+            "day": self.env.current_day,
+            "note": f"Machine capacity: {slot_status['total_used']}/{slot_status['total_max']} slots used (Small: {slot_status['small_slots_used']}/{slot_status['small_slots_max']}, Large: {slot_status['large_slots_used']}/{slot_status['large_slots_max']})"
         }
 
     def stock_machine(self, product: str, quantity: int) -> Dict[str, Any]:
         """
         Move items from storage to vending machine.
+
+        NOTE: Machine has limited capacity (12 slots total):
+        - 6 slots for small items (chips, chocolate)
+        - 6 slots for large items (coffee, soda)
+        Each unit takes one slot.
 
         Args:
             product: Product name
@@ -273,6 +282,20 @@ class VendingTools:
             return {
                 "success": False,
                 "error": "Quantity must be positive"
+            }
+
+        # Check machine slot capacity
+        can_stock, reason, max_stockable = self.env.can_stock_product(product, quantity)
+        if not can_stock:
+            slot_status = self.env.get_machine_slot_status()
+            product_size = PRODUCT_CATALOG[product]["size"]
+            return {
+                "success": False,
+                "error": reason,
+                "product_size": product_size,
+                "max_stockable": max_stockable,
+                "slot_status": slot_status,
+                "hint": f"Try stocking {max_stockable} units instead, or wait for items to sell"
             }
 
         # Check storage availability
@@ -306,8 +329,10 @@ class VendingTools:
         for item in items_to_remove:
             storage_items.remove(item)
 
-        # Add to machine
-        self.env.machine_inventory[product] += quantity
+        # Add to machine (updates slot usage)
+        self.env.add_to_machine(product, quantity)
+
+        slot_status = self.env.get_machine_slot_status()
 
         return {
             "success": True,
@@ -315,7 +340,8 @@ class VendingTools:
             "quantity": quantity,
             "machine_inventory_after": self.env.machine_inventory[product],
             "storage_inventory_after": sum(item.quantity for item in storage_items),
-            "message": f"Stocked {quantity} units of {product} in machine"
+            "slot_status": slot_status,
+            "message": f"Stocked {quantity} units of {product} in machine. Slots: {slot_status['total_used']}/{slot_status['total_max']} used"
         }
 
     # =========================================================================
