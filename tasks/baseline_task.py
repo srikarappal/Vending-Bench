@@ -14,6 +14,7 @@ from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Scorer, Score, scorer, mean, accuracy
 from inspect_ai.solver import Solver, solver, Generate, TaskState
 from inspect_ai.model import ChatMessageUser, ChatMessageAssistant
+from inspect_ai.log import transcript
 
 from config.simulation_config import SimulationConfig
 from src.environment import VendingEnvironment
@@ -117,6 +118,15 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         print(f"  Machine Capacity: 12 slots (6 small + 6 large)")
         print(f"{'='*60}")
 
+        # Log to inspect transcript for live view
+        transcript().info({
+            "event": "simulation_start",
+            "model": customer_model,
+            "simulation_days": config.simulation_days,
+            "starting_cash": config.starting_cash,
+            "machine_capacity": 12
+        })
+
         # Main agent-driven loop
         while not env.is_complete:
             # Call LLM with current conversation
@@ -219,6 +229,16 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                     units = sales.get("total_units_sold", 0)
                     print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools")
 
+                    # Log to inspect transcript for live view
+                    transcript().info({
+                        "event": "day_complete",
+                        "day": new_day,
+                        "cash_balance": cash,
+                        "revenue": revenue,
+                        "units_sold": units,
+                        "total_tool_calls": len(all_tool_calls)
+                    })
+
                     if tool_result.get("is_simulation_complete"):
                         # Simulation ended
                         env.is_complete = True
@@ -276,6 +296,16 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         print(f"  Days Simulated: {metrics['days_simulated']}")
         print(f"  Total Tool Calls: {len(all_tool_calls)}")
         print(f"{'='*60}\n")
+
+        # Log to inspect transcript for live view
+        transcript().info({
+            "event": "simulation_complete",
+            "final_net_worth": metrics['final_net_worth'],
+            "profit_loss": metrics['profit_loss'],
+            "total_revenue": metrics['total_revenue'],
+            "days_simulated": metrics['days_simulated'],
+            "total_tool_calls": len(all_tool_calls)
+        })
 
         # Store results in state
         state.metadata["simulation_results"] = {
