@@ -41,6 +41,18 @@ class Transaction:
     notes: str = ""
 
 
+@dataclass
+class PendingOrder:
+    """Represents an order that is in transit."""
+    order_id: str
+    product: str
+    quantity: int
+    supplier_cost: float
+    order_day: int
+    delivery_day: int  # Day when order will arrive
+    total_cost: float
+
+
 class VendingEnvironment:
     """
     365-day vending machine business simulation.
@@ -86,6 +98,9 @@ class VendingEnvironment:
         self.email_inbox: List[Dict[str, Any]] = []
         self.email_sent: List[Dict[str, Any]] = []
 
+        # Pending orders (orders in transit, not yet delivered)
+        self.pending_orders: List[PendingOrder] = []
+
         # Initialize starter inventory if configured
         if config.starting_inventory_units > 0:
             self._initialize_starter_inventory(config.starting_inventory_units)
@@ -123,10 +138,11 @@ class VendingEnvironment:
 
         This is the core of the agent-driven simulation loop:
         1. Process customer purchases based on machine inventory
-        2. Charge daily operating fee
-        3. Process spoilage
-        4. Advance to the next day
-        5. Generate morning briefing
+        2. Advance to the next day
+        3. Process deliveries (orders that have arrived)
+        4. Charge daily operating fee
+        5. Process spoilage
+        6. Generate morning briefing
 
         Returns:
             Dictionary with overnight sales report and morning briefing
@@ -137,27 +153,82 @@ class VendingEnvironment:
         # 2. Advance to next day
         self.current_day += 1
 
-        # 3. Charge daily operating fee
+        # 3. Process deliveries (orders arriving today)
+        deliveries = self._process_deliveries()
+
+        # 4. Charge daily operating fee
         self._charge_daily_fee()
 
-        # 4. Check for spoilage
+        # 5. Check for spoilage
         spoiled = self._process_spoilage()
 
-        # 5. Generate daily report
+        # 6. Generate daily report
         report = self._log_daily_report()
 
-        # 6. Check if simulation is complete
+        # 7. Check if simulation is complete
         if self.current_day >= self.config.simulation_days:
             self.is_complete = True
 
         return {
             "overnight_sales": overnight_sales,
+            "deliveries": deliveries,
             "spoiled_items": spoiled,
             "daily_fee_charged": self.config.daily_fee,
             "new_day": self.current_day,
             "cash_balance": self.cash_balance,
             "is_complete": self.is_complete
         }
+
+    def _process_deliveries(self) -> List[Dict[str, Any]]:
+        """
+        Process orders that are scheduled for delivery today.
+
+        Returns:
+            List of delivered orders
+        """
+        delivered = []
+        remaining_orders = []
+
+        for order in self.pending_orders:
+            if order.delivery_day <= self.current_day:
+                # Order has arrived - add to storage
+                expiration_day = self.current_day + PRODUCT_CATALOG[order.product]["spoilage_days"]
+                new_item = InventoryItem(
+                    product=order.product,
+                    quantity=order.quantity,
+                    purchase_date=self.current_day,
+                    supplier_cost=order.supplier_cost,
+                    expiration_day=expiration_day
+                )
+                self.storage_inventory[order.product].append(new_item)
+
+                delivered.append({
+                    "order_id": order.order_id,
+                    "product": order.product,
+                    "quantity": order.quantity,
+                    "ordered_day": order.order_day,
+                    "delivered_day": self.current_day
+                })
+            else:
+                # Order still in transit
+                remaining_orders.append(order)
+
+        self.pending_orders = remaining_orders
+        return delivered
+
+    def get_pending_orders(self) -> List[Dict[str, Any]]:
+        """Get list of orders currently in transit."""
+        return [
+            {
+                "order_id": order.order_id,
+                "product": order.product,
+                "quantity": order.quantity,
+                "ordered_day": order.order_day,
+                "delivery_day": order.delivery_day,
+                "days_until_delivery": order.delivery_day - self.current_day
+            }
+            for order in self.pending_orders
+        ]
 
     def _process_overnight_sales(self) -> Dict[str, Any]:
         """

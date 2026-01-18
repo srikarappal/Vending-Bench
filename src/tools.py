@@ -7,8 +7,12 @@ Based on Vending-Bench 2 paper specification.
 from typing import Dict, List, Any, Optional
 import uuid
 
-from src.environment import VendingEnvironment, InventoryItem
+from src.environment import VendingEnvironment, InventoryItem, PendingOrder
 from src.products import PRODUCT_CATALOG, get_product_info
+
+
+# Delivery delay in days (orders take this long to arrive)
+DELIVERY_DELAY_DAYS = 3
 
 
 # Mock research database (Option A: Fast iteration)
@@ -130,14 +134,17 @@ class VendingTools:
 
     def order_inventory(self, product: str, quantity: int) -> Dict[str, Any]:
         """
-        Order products from supplier (instant delivery to storage).
+        Order products from supplier (delivery takes 3 days).
+
+        IMPORTANT: Orders are NOT instant! Products will arrive in your storage
+        after the delivery delay (currently 3 days). Plan ahead!
 
         Args:
             product: Product name
             quantity: Number of units to order
 
         Returns:
-            Dict with operation result
+            Dict with operation result including expected delivery day
         """
         self.env.message_count += 1
 
@@ -165,19 +172,24 @@ class VendingTools:
                 "error": f"Insufficient funds. Need ${total_cost:.2f}, have ${self.env.cash_balance:.2f}"
             }
 
-        # Deduct cash
+        # Deduct cash immediately (payment on order)
         self.env.cash_balance -= total_cost
 
-        # Add to storage (instant delivery in simplified version)
-        expiration_day = self.env.current_day + PRODUCT_CATALOG[product]["spoilage_days"]
-        new_item = InventoryItem(
+        # Calculate delivery day
+        delivery_day = self.env.current_day + DELIVERY_DELAY_DAYS
+
+        # Create pending order (will be delivered later)
+        order_id = str(uuid.uuid4())[:8]
+        pending_order = PendingOrder(
+            order_id=order_id,
             product=product,
             quantity=quantity,
-            purchase_date=self.env.current_day,
             supplier_cost=supplier_cost,
-            expiration_day=expiration_day
+            order_day=self.env.current_day,
+            delivery_day=delivery_day,
+            total_cost=total_cost
         )
-        self.env.storage_inventory[product].append(new_item)
+        self.env.pending_orders.append(pending_order)
 
         # Record transaction
         self.env._record_transaction(
@@ -185,18 +197,40 @@ class VendingTools:
             product=product,
             quantity=quantity,
             amount=-total_cost,
-            notes=f"Ordered {quantity} units of {product} from supplier"
+            notes=f"Ordered {quantity} units of {product} - delivery on day {delivery_day}"
         )
 
         return {
             "success": True,
+            "order_id": order_id,
             "product": product,
             "quantity": quantity,
             "cost": total_cost,
             "unit_cost": supplier_cost,
-            "expiration_day": expiration_day,
+            "order_day": self.env.current_day,
+            "delivery_day": delivery_day,
+            "days_until_delivery": DELIVERY_DELAY_DAYS,
             "new_cash_balance": self.env.cash_balance,
-            "message": f"Ordered {quantity} units of {product} for ${total_cost:.2f}"
+            "message": f"Ordered {quantity} units of {product} for ${total_cost:.2f}. Will arrive on Day {delivery_day} ({DELIVERY_DELAY_DAYS} days)."
+        }
+
+    def check_pending_orders(self) -> Dict[str, Any]:
+        """
+        Check status of orders that are in transit.
+
+        Returns:
+            Dict with list of pending orders and their expected delivery dates
+        """
+        self.env.message_count += 1
+
+        pending = self.env.get_pending_orders()
+
+        return {
+            "success": True,
+            "pending_orders": pending,
+            "num_pending": len(pending),
+            "day": self.env.current_day,
+            "message": f"You have {len(pending)} order(s) in transit" if pending else "No orders in transit"
         }
 
     def get_machine_inventory(self) -> Dict[str, Any]:
@@ -446,6 +480,7 @@ class VendingTools:
         # Format the morning briefing
         sales = overnight_result["overnight_sales"]
         spoiled = overnight_result["spoiled_items"]
+        deliveries = overnight_result.get("deliveries", [])
 
         # Build sales summary
         if sales["total_units_sold"] > 0:
@@ -458,6 +493,16 @@ class VendingTools:
         else:
             sales_summary = "  No sales overnight (machine may have been empty)"
 
+        # Build delivery summary
+        if deliveries:
+            delivery_lines = [
+                f"  - {d['product'].capitalize()}: {d['quantity']} units arrived (ordered Day {d['ordered_day']})"
+                for d in deliveries
+            ]
+            delivery_summary = "\n".join(delivery_lines)
+        else:
+            delivery_summary = "  No deliveries today"
+
         # Build spoilage summary
         if spoiled:
             spoilage_lines = [
@@ -468,6 +513,17 @@ class VendingTools:
         else:
             spoilage_summary = "  No items spoiled"
 
+        # Get pending orders
+        pending_orders = self.env.get_pending_orders()
+        if pending_orders:
+            pending_lines = [
+                f"  - {o['product'].capitalize()}: {o['quantity']} units arriving Day {o['delivery_day']} ({o['days_until_delivery']} days)"
+                for o in pending_orders
+            ]
+            pending_summary = "\n".join(pending_lines)
+        else:
+            pending_summary = "  No orders in transit"
+
         # Get current state for briefing
         state = self.env.get_state()
 
@@ -477,6 +533,12 @@ Good morning! It's Day {overnight_result['new_day']}.
 OVERNIGHT SALES REPORT:
 {sales_summary}
 Total Revenue: ${sales['total_revenue']:.2f}
+
+DELIVERIES ARRIVED:
+{delivery_summary}
+
+ORDERS IN TRANSIT:
+{pending_summary}
 
 SPOILAGE:
 {spoilage_summary}
@@ -803,11 +865,16 @@ CURRENT STATUS:
             },
             {
                 "name": "order_inventory",
-                "description": "Order products from supplier (instant delivery to storage). You must then use stock_machine to put them in the vending machine.",
+                "description": "Order products from supplier. IMPORTANT: Delivery takes 3 days! Plan ahead. Products arrive in storage, then use stock_machine to put them in the vending machine.",
                 "parameters": {
                     "product": "Product name (coffee, chocolate, chips, soda)",
                     "quantity": "Number of units to order"
                 }
+            },
+            {
+                "name": "check_pending_orders",
+                "description": "Check status of orders in transit. Shows what you've ordered and when it will arrive.",
+                "parameters": {}
             },
             # === PRICING ===
             {

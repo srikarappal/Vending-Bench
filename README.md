@@ -64,6 +64,29 @@ max_messages = 2000
 - Inventory efficiency
 - Decision consistency
 
+## TODO: Future Improvements
+
+### Full Email-Based Supplier System
+
+The original VendingBench 2 paper implements a more sophisticated supplier communication system that we have simplified. The full system includes:
+
+1. **Wholesaler Search** - Agent searches for suppliers by product category
+2. **Email Communication** - Agent sends emails to suppliers requesting quotes
+3. **Asynchronous Replies** - LLM-generated supplier responses arrive after delays
+4. **Price Negotiation** - Suppliers offer different prices, minimum orders, delivery times
+5. **Relationship Building** - Repeated orders may improve pricing/terms
+
+**Current Implementation:** Simplified direct ordering with 3-day delivery delays. Orders are paid upfront and delivered automatically.
+
+**Paper Reference:** Section 2.2.1 "Communication and Supplier Simulation" describes the full email flow:
+```
+Agent → search_wholesalers(category) → List of suppliers
+Agent → send_email(supplier, request) → Queued for processing
+System → LLM generates supplier response → Email arrives next day
+Agent → read_emails() → Processes supplier offers
+Agent → place_order(supplier, items) → Order confirmed with delivery date
+```
+
 ## Project Structure
 
 ```
