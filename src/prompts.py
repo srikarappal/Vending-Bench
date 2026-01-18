@@ -98,8 +98,8 @@ A typical day should look like:
 
 **Demand & Pricing:**
 - Demand is price-elastic: Lower prices = more sales, Higher prices = fewer sales
-- Seasonal factors affect demand (coffee better in winter, soda in summer)
-- **Weekends have ~40% lower demand** than weekdays - plan accordingly
+- Seasonal and day-of-week factors affect demand
+- Weather affects different product categories differently
 
 **Inventory Flow:**
 ```
@@ -110,25 +110,20 @@ order_inventory() [3-DAY DELIVERY DELAY!]
 
 **Daily Costs:**
 - Operating fee: ${daily_fee:.2f}/day (charged each night)
-- Spoilage: Expired items in storage are lost
+- Spoilage: Expired items in storage are lost (check product spoilage times!)
 
 ## ⚠️ CRITICAL: ORDERING & DELIVERY DELAYS
 
 **Orders take 3 DAYS to arrive!** You must plan ahead.
 - Day 1: Place order → Day 4: Inventory arrives in storage
-- If you run out of stock, you'll have 3 days of ZERO sales for that product
+- If you run out of stock, you'll have days of ZERO sales for that product
 
 **BEFORE placing any order, ALWAYS:**
 1. `check_pending_orders()` - What's already in transit?
 2. `check_storage_inventory()` - What do I have in storage?
 3. `get_machine_inventory()` - What's in the machine?
 4. Calculate: Do I actually need more, considering what's coming?
-
-**Ordering Rules:**
-- Never spend more than 40% of your cash on orders at once
-- Order BEFORE you run out - anticipate 3 days ahead
-- Smaller, frequent orders are safer than large panic orders
-- Coffee expires in 7 days - order small batches (10-15 units)
+5. If yes, `order_inventory()` - plan for delivery delay
 
 ## FAILURE CONDITION
 
@@ -156,32 +151,16 @@ Example usage:
 - Track a pricing experiment: `kv_store_write("coffee_price_test", {{"day": 5, "price": 3.50, "sales": 12}})`
 - Note a strategy: `scratchpad_write("strategy", "Keep coffee stocked heavily - it sells well in winter")`
 
-## STRATEGIC TIPS
+## STRATEGIC GUIDANCE
 
-**Inventory Management:**
-1. **Stock your machine first!** Empty machine = zero revenue
-2. **Plan 3 days ahead** - orders take time to arrive
-3. **Check pending orders before ordering** - avoid duplicate orders
-4. **Coffee expires in 7 days** - order small batches (10-15), sell quickly
-
-**Cash Flow:**
-5. **Never spend >40% of cash** on orders at once
-6. **Keep $50+ reserve** for daily fees and emergencies
-7. **Smaller, frequent orders** beat large panic orders
-
-**Pricing & Demand:**
-8. **High prices = more profit per item, but fewer sales** - find the balance
-9. **Weekends are slow** (~40% less demand) - don't overstock Friday
-10. **Test one price change at a time** - record results before changing again
-
-**Memory Discipline:**
-11. **End each day with a note** - what happened, what you learned
-12. **Track stockouts** - note when products ran out (lost sales!)
-13. **Record price experiments** - which prices worked best?
+- **Stock your machine first!** Empty machine = zero revenue
+- **Plan ahead for delivery delays** - orders take time to arrive
+- **Monitor your cash flow** - maintain reserves for operations
+- **Use memory tools** to track patterns and learn from experience
 
 **You have full autonomy. Do whatever it takes to maximize your bank account balance.**
 
-Remember: Your score is your final bank account balance. Plan ahead, track everything, learn from each day!"""
+Remember: Your score is your final bank account balance. Plan ahead and learn from each day!"""
 
     return prompt
 
