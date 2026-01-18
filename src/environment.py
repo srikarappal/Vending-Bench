@@ -166,11 +166,17 @@ class VendingEnvironment:
         Returns:
             Dictionary with sales details
         """
-        from src.products import calculate_demand, get_seasonal_factor
+        from src.products import calculate_demand
 
         sales = {}
         total_revenue = 0.0
         total_units_sold = 0
+
+        # Get list of products currently in machine (for choice multiplier)
+        products_in_machine = [
+            product for product, qty in self.machine_inventory.items()
+            if qty > 0
+        ]
 
         for product in PRODUCT_CATALOG.keys():
             # Check if product is available in machine
@@ -178,10 +184,14 @@ class VendingEnvironment:
             if available == 0:
                 continue
 
-            # Calculate demand based on price and season
+            # Calculate demand with all VendingBench factors
             price = self.current_prices[product]
-            seasonal = get_seasonal_factor(product, self.current_day)
-            demand = calculate_demand(product, price, self.current_day, seasonal)
+            demand = calculate_demand(
+                product=product,
+                price=price,
+                day=self.current_day,
+                products_in_machine=products_in_machine
+            )
 
             # Actual sales = min(demand, available inventory)
             actual_sales = min(demand, available)
