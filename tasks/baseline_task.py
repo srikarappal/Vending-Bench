@@ -15,7 +15,7 @@ from inspect_ai.scorer import Scorer, Score, scorer, mean, accuracy
 from inspect_ai.solver import Solver, solver, Generate, TaskState
 from inspect_ai.model import ChatMessageUser, ChatMessageAssistant
 from inspect_ai.log import transcript
-from inspect_ai.util import display
+from inspect_ai.util import display_counter
 
 from config.simulation_config import SimulationConfig
 from src.environment import VendingEnvironment
@@ -128,11 +128,7 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             "machine_capacity": 12
         })
 
-        # Main agent-driven loop with progress display
-        progress = display().progress(total=config.simulation_days, description="Simulation")
-        progress.start()
-        last_day = 0
-
+        # Main agent-driven loop
         while not env.is_complete:
             # Call LLM with current conversation
             response = client.messages.create(
@@ -234,11 +230,10 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                     units = sales.get("total_units_sold", 0)
                     print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools")
 
-                    # Update progress bar and display status
-                    if isinstance(new_day, int) and new_day > last_day:
-                        progress.update(new_day - last_day, f"Day {new_day}: ${cash:.2f}")
-                        display().print(f"Day {new_day}/{config.simulation_days}: Cash=${cash:.2f} | Revenue=${revenue:.2f} | Units={units}")
-                        last_day = new_day
+                    # Update display counters for inspect-ai UI
+                    display_counter("Day", f"{new_day}/{config.simulation_days}")
+                    display_counter("Cash", f"${cash:.2f}")
+                    display_counter("Revenue", f"${revenue:.2f}")
 
                     # Log to inspect transcript for live view
                     transcript().info({
@@ -291,9 +286,6 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                     content="[SYSTEM] Maximum tool calls reached. Ending simulation."
                 ))
                 break
-
-        # Stop progress bar
-        progress.stop()
 
         # Calculate final metrics
         metrics = env.calculate_final_metrics()
