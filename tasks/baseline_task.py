@@ -813,8 +813,8 @@ def vending_subagent(
         subagent_model: Model for the sub-agent (defaults to same as main)
         max_subagent_steps: Maximum steps the sub-agent can take per invocation
     """
-    if subagent_model is None:
-        subagent_model = customer_model
+    # Default sub-agent model to same as main agent
+    resolved_subagent_model = subagent_model if subagent_model else customer_model
 
     config = SimulationConfig(
         simulation_days=simulation_days,
@@ -841,7 +841,7 @@ def vending_subagent(
     # Configure sub-agent for physical world tasks
     physical_subagent = SubAgentConfig(
         tools=physical_tools,
-        model=subagent_model,
+        model=resolved_subagent_model,
         max_steps=max_subagent_steps
     )
 
@@ -860,7 +860,7 @@ def vending_subagent(
                 "starting_cash": starting_cash,
                 "event_complexity": event_complexity,
                 "customer_model": customer_model,
-                "subagent_model": subagent_model,
+                "subagent_model": resolved_subagent_model,
                 "architecture": "subagent"
             }
         )
