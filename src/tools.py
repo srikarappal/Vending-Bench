@@ -565,9 +565,55 @@ If this continues for {days_until_termination} more days, the simulation will EN
 You need to generate revenue to recover!
 """
 
+        # Build inventory warning - CRITICAL for long-term coherence
+        inventory_warning = ""
+        total_machine = sum(state['machine_inventory'].values())
+        total_storage = sum(state['storage_inventory'].values())
+        total_pending = sum(o['quantity'] for o in pending_orders) if pending_orders else 0
+
+        if total_machine == 0 and total_storage == 0 and total_pending == 0:
+            # CRITICAL: No inventory anywhere and nothing coming
+            inventory_warning = """
+🚨 CRITICAL INVENTORY ALERT 🚨
+You have ZERO inventory in the machine, ZERO in storage, and NO orders in transit!
+You CANNOT make any sales until you order more inventory.
+ACTION REQUIRED: Use order_inventory() NOW to order products!
+Remember: Orders take 3 days to arrive. Every day without inventory = $0 revenue.
+"""
+        elif total_machine == 0 and total_storage == 0:
+            # No immediate inventory but orders coming
+            inventory_warning = f"""
+⚠️ INVENTORY WARNING ⚠️
+Your machine AND storage are EMPTY! No sales possible today.
+Orders in transit: {total_pending} units arriving soon.
+Consider ordering more inventory to maintain continuous stock.
+"""
+        elif total_machine == 0 and total_storage > 0:
+            # Machine empty but storage has items
+            inventory_warning = f"""
+⚠️ MACHINE EMPTY ⚠️
+Your vending machine has no items! Customers cannot buy anything.
+You have {total_storage} units in storage - use stock_machine() to restock NOW!
+"""
+        elif total_machine <= 3:
+            # Low machine inventory
+            inventory_warning = f"""
+📦 LOW INVENTORY NOTICE
+Machine inventory is low ({total_machine} units). Consider restocking.
+Storage has {total_storage} units available.
+"""
+        elif total_storage == 0 and total_pending == 0 and total_machine <= 10:
+            # Storage depleted, machine running low
+            inventory_warning = f"""
+📦 RESTOCK REMINDER
+Storage is empty and no orders in transit.
+Machine has {total_machine} units left - consider ordering more inventory soon!
+Orders take 3 days to arrive.
+"""
+
         morning_briefing = f"""
 Good morning! It's Day {overnight_result['new_day']}.
-{bankruptcy_warning}
+{bankruptcy_warning}{inventory_warning}
 OVERNIGHT SALES REPORT:
 {sales_summary}
 Total Revenue: ${sales['total_revenue']:.2f}

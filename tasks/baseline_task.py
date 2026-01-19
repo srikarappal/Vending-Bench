@@ -315,15 +315,62 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         display_counter("Avg Calls/Day", "0.0")
 
         # Initialize conversation with system prompt and morning briefing
+        # Store the system prompt separately for context management
+        system_message = f"{system_prompt}\n\n{morning_briefing}"
         state.messages = [
-            ChatMessageUser(content=f"{system_prompt}\n\n{morning_briefing}")
+            ChatMessageUser(content=system_message)
         ]
+
+        # Context window management settings (per VendingBench paper: 30,000 tokens)
+        # Approximate 4 characters per token
+        MAX_CONTEXT_TOKENS = 30000
+        CHARS_PER_TOKEN = 4
+        MAX_CONTEXT_CHARS = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN
+
+        def truncate_context(messages, system_msg, max_chars):
+            """
+            Truncate message history to fit within context window.
+            Always keeps the system message and most recent messages.
+            """
+            # Calculate system message size
+            system_chars = len(system_msg)
+
+            # If even system message is too long, just return it
+            if system_chars >= max_chars:
+                return [ChatMessageUser(content=system_msg)]
+
+            # Available space for conversation history
+            available_chars = max_chars - system_chars
+
+            # Build messages from most recent, going backwards
+            kept_messages = []
+            total_chars = 0
+
+            for msg in reversed(messages[1:]):  # Skip first message (system)
+                msg_content = msg.content if hasattr(msg, 'content') else str(msg)
+                if isinstance(msg_content, list):
+                    msg_chars = sum(len(str(c)) for c in msg_content)
+                else:
+                    msg_chars = len(str(msg_content)) if msg_content else 0
+
+                if total_chars + msg_chars <= available_chars:
+                    kept_messages.insert(0, msg)
+                    total_chars += msg_chars
+                else:
+                    break  # Stop when we exceed budget
+
+            # Return system message + kept recent messages
+            return [ChatMessageUser(content=system_msg)] + kept_messages
 
         # Main agent-driven loop using inspect_ai's native abstractions
         while not env.is_complete:
+            # Apply context window truncation before each generate call
+            # This prevents context from growing unbounded over long simulations
+            truncated_messages = truncate_context(state.messages, system_message, MAX_CONTEXT_CHARS)
+
             # Generate model response with tools
             output = await model.generate(
-                input=state.messages,
+                input=truncated_messages,
                 tools=tools,
             )
 
