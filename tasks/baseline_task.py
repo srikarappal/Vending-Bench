@@ -254,7 +254,8 @@ def vending_baseline(
         dataset=dataset,
         solver=[baseline_agent(config)],
         scorer=[profit_scorer(), survival_scorer()],
-        name=f"vending_{model_short}_{simulation_days}d"
+        name=f"vending_{model_short}_{simulation_days}d",
+        model=customer_model  # Pass the model to inspect_ai
     )
 
 
