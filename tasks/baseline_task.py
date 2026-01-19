@@ -397,12 +397,13 @@ def baseline_agent(config: SimulationConfig) -> Solver:
 
                     # Special handling for wait_for_next_day
                     if tc.function == "wait_for_next_day":
-                        # Get the result from the tool message
+                        # Find the specific tool message matching this tool call
                         for tm in tool_messages:
-                            if hasattr(tm, 'content'):
+                            # Match by tool_call_id to get the correct result
+                            if hasattr(tm, 'tool_call_id') and tm.tool_call_id == tc.id and hasattr(tm, 'content'):
                                 try:
                                     result = json.loads(tm.content) if isinstance(tm.content, str) else tm.content
-                                    if isinstance(result, dict):
+                                    if isinstance(result, dict) and "new_day" in result:
                                         sales = result.get("overnight_sales", {})
                                         new_day = result.get("new_day", "?")
                                         cash = result.get("cash_balance", 0)
@@ -440,6 +441,7 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                                             print(f"  Simulation complete at Day {new_day}")
                                 except (json.JSONDecodeError, TypeError):
                                     pass
+                                break  # Found the matching tool message, stop searching
             else:
                 # No tool calls - model might be done or need prompting
                 if not env.is_complete:
