@@ -12,6 +12,52 @@ from collections import defaultdict
 from inspect_ai.log import read_eval_log
 
 
+def extract_tool_calls_from_messages(messages):
+    """
+    Extract tool calls from raw messages (for subagent mode where
+    simulation_results isn't populated by basic_agent).
+    """
+    tool_calls = []
+    current_day = 0
+
+    for i, msg in enumerate(messages):
+        # Check for tool calls in assistant messages
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool_call_record = {
+                    "tool": tc.function,
+                    "input": tc.arguments if hasattr(tc, 'arguments') else {},
+                    "tool_call_id": tc.id if hasattr(tc, 'id') else None,
+                    "day": current_day
+                }
+
+                # Try to find the corresponding tool result
+                for j in range(i + 1, min(i + 10, len(messages))):
+                    result_msg = messages[j]
+                    if result_msg.role == "tool":
+                        tool_call_id = getattr(result_msg, 'tool_call_id', None)
+                        if tool_call_id == tc.id or (tool_call_id is None and j == i + 1):
+                            content = result_msg.content
+                            if isinstance(content, str):
+                                try:
+                                    tool_call_record["result"] = json.loads(content)
+                                except (json.JSONDecodeError, TypeError):
+                                    tool_call_record["result"] = content
+                            else:
+                                tool_call_record["result"] = content
+
+                            # Update current day from wait_for_next_day results
+                            if tc.function == "wait_for_next_day":
+                                result = tool_call_record.get("result", {})
+                                if isinstance(result, dict) and "new_day" in result:
+                                    current_day = result["new_day"]
+                            break
+
+                tool_calls.append(tool_call_record)
+
+    return tool_calls
+
+
 def analyze_eval(eval_path: str, verbose: bool = False):
     """
     Analyze an eval log file and print detailed statistics.
@@ -33,6 +79,16 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     final_metrics = sim_results.get("final_metrics", {})
     tool_calls = sim_results.get("tool_calls", [])
     memory_stats = sim_results.get("memory_stats", {})
+
+    # Detect architecture type
+    architecture = sample.metadata.get("architecture", "baseline")
+    print(f"Architecture: {architecture}")
+
+    # If no tool_calls in simulation_results, extract from messages
+    # This handles subagent mode where basic_agent doesn't populate our format
+    if not tool_calls and hasattr(sample, 'messages') and sample.messages:
+        print("(Extracting tool calls from raw messages...)")
+        tool_calls = extract_tool_calls_from_messages(sample.messages)
 
     # === EXTRACT CASH BALANCE ===
     starting_cash = final_metrics.get('starting_cash', 500.0)
@@ -85,6 +141,14 @@ def analyze_eval(eval_path: str, verbose: bool = False):
         print(f"  {name}: {count}")
 
     print(f"\nTotal tool calls: {len(tool_calls)}")
+
+    # === SUBAGENT STATS (if applicable) ===
+    subagent_calls = tool_counts.get("run_sub_agent", 0) + tool_counts.get("chat_with_sub_agent", 0)
+    if subagent_calls > 0:
+        print("\n=== SUBAGENT STATS ===")
+        print(f"  run_sub_agent calls:      {tool_counts.get('run_sub_agent', 0)}")
+        print(f"  chat_with_sub_agent calls: {tool_counts.get('chat_with_sub_agent', 0)}")
+        print(f"  Total subagent interactions: {subagent_calls}")
 
     # === DAILY BREAKDOWN ===
     print("\n=== DAILY REVENUE BREAKDOWN ===")
