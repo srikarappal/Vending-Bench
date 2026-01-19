@@ -331,7 +331,10 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             """
             Truncate message history to fit within context window.
             Always keeps the system message and most recent messages.
+            CRITICAL: Preserves tool call/response pairs to avoid API errors.
             """
+            from inspect_ai.model import ChatMessageTool
+
             # Calculate system message size
             system_chars = len(system_msg)
 
@@ -342,22 +345,60 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             # Available space for conversation history
             available_chars = max_chars - system_chars
 
-            # Build messages from most recent, going backwards
-            kept_messages = []
+            # Get conversation messages (skip first which is system)
+            conversation = messages[1:] if len(messages) > 1 else []
+
+            # If conversation fits, return all
+            total_conv_chars = sum(
+                len(str(m.content)) if hasattr(m, 'content') and m.content else 0
+                for m in conversation
+            )
+            if total_conv_chars <= available_chars:
+                return messages  # No truncation needed
+
+            # Group messages into logical units (assistant + tool responses)
+            # Each group must be kept together to maintain API consistency
+            groups = []
+            current_group = []
+
+            for msg in conversation:
+                if isinstance(msg, ChatMessageTool):
+                    # Tool messages belong with preceding group
+                    current_group.append(msg)
+                elif hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    # Assistant message with tool calls starts new group
+                    if current_group:
+                        groups.append(current_group)
+                    current_group = [msg]
+                else:
+                    # Regular message - save previous group, start new
+                    if current_group:
+                        groups.append(current_group)
+                    current_group = [msg]
+
+            # Don't forget the last group
+            if current_group:
+                groups.append(current_group)
+
+            # Build from most recent groups, going backwards
+            kept_groups = []
             total_chars = 0
 
-            for msg in reversed(messages[1:]):  # Skip first message (system)
-                msg_content = msg.content if hasattr(msg, 'content') else str(msg)
-                if isinstance(msg_content, list):
-                    msg_chars = sum(len(str(c)) for c in msg_content)
-                else:
-                    msg_chars = len(str(msg_content)) if msg_content else 0
-
-                if total_chars + msg_chars <= available_chars:
-                    kept_messages.insert(0, msg)
-                    total_chars += msg_chars
+            for group in reversed(groups):
+                group_chars = sum(
+                    len(str(m.content)) if hasattr(m, 'content') and m.content else 0
+                    for m in group
+                )
+                if total_chars + group_chars <= available_chars:
+                    kept_groups.insert(0, group)
+                    total_chars += group_chars
                 else:
                     break  # Stop when we exceed budget
+
+            # Flatten groups back to message list
+            kept_messages = []
+            for group in kept_groups:
+                kept_messages.extend(group)
 
             # Return system message + kept recent messages
             return [ChatMessageUser(content=system_msg)] + kept_messages
