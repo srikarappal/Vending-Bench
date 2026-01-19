@@ -5,24 +5,196 @@ This task runs a baseline agent that makes decisions based only on
 current state without any long-term memory.
 
 Uses inspect_ai's native model abstraction for multi-provider support.
+Supports both direct tool access and sub-agent architecture (matching VendingBench).
 """
 
 import json
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Scorer, Score, scorer, mean, accuracy
-from inspect_ai.solver import Solver, solver, Generate, TaskState
+from inspect_ai.solver import Solver, solver, Generate, TaskState, basic_agent, system_message
 from inspect_ai.model import ChatMessageUser, ChatMessageAssistant, get_model, execute_tools, trim_messages
 from inspect_ai.tool import ToolDef
 from inspect_ai.log import transcript
 from inspect_ai.util import display_counter
 
+# Multi-agent support
+from multiagent_inspect import SubAgentConfig, init_sub_agents
+
 from config.simulation_config import SimulationConfig
 from src.environment import VendingEnvironment
 from src.tools import VendingTools
-from src.prompts import build_system_prompt
+from src.prompts import (
+    build_system_prompt,
+    build_subagent_system_prompt,
+    build_main_agent_prompt_with_subagent
+)
+
+
+def create_direct_tools(vending_tools: VendingTools) -> List[ToolDef]:
+    """
+    Create tools that the main agent can access directly (remote/digital tools).
+
+    Per VendingBench paper: "Tools related to tasks that can be carried out
+    remotely are available directly to the agent"
+    """
+
+    async def check_balance() -> str:
+        """Get current cash balance and net worth estimate."""
+        result = vending_tools.check_balance()
+        return json.dumps(result)
+
+    async def check_storage_inventory() -> str:
+        """Check inventory levels in storage warehouse."""
+        result = vending_tools.check_storage_inventory()
+        return json.dumps(result)
+
+    async def order_inventory(product: str, quantity: int) -> str:
+        """Order new inventory from supplier. Orders take 3 days to arrive."""
+        result = vending_tools.order_inventory(product, quantity)
+        return json.dumps(result)
+
+    async def check_pending_orders() -> str:
+        """Check status of orders currently in transit."""
+        result = vending_tools.check_pending_orders()
+        return json.dumps(result)
+
+    async def research_market(query: str) -> str:
+        """Research market information using internet search."""
+        result = vending_tools.research_market(query)
+        return json.dumps(result)
+
+    async def wait_for_next_day() -> str:
+        """End current day and advance to next day. Overnight sales will be processed."""
+        result = vending_tools.wait_for_next_day()
+        return json.dumps(result)
+
+    # Memory tools
+    async def scratchpad_write(key: str, content: str) -> str:
+        """Write a note to the scratchpad."""
+        result = vending_tools.scratchpad_write(key, content)
+        return json.dumps(result)
+
+    async def scratchpad_read(key: str) -> str:
+        """Read a note from the scratchpad."""
+        result = vending_tools.scratchpad_read(key)
+        return json.dumps(result)
+
+    async def scratchpad_list() -> str:
+        """List all keys in the scratchpad."""
+        result = vending_tools.scratchpad_list()
+        return json.dumps(result)
+
+    async def kv_store_write(key: str, value: str) -> str:
+        """Write structured data to key-value store."""
+        try:
+            parsed_value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            parsed_value = value
+        result = vending_tools.kv_store_write(key, parsed_value)
+        return json.dumps(result)
+
+    async def kv_store_read(key: str) -> str:
+        """Read data from key-value store."""
+        result = vending_tools.kv_store_read(key)
+        return json.dumps(result)
+
+    async def kv_store_list() -> str:
+        """List all keys in the key-value store."""
+        result = vending_tools.kv_store_list()
+        return json.dumps(result)
+
+    return [
+        ToolDef(tool=check_balance, name="check_balance",
+                description="Get current cash balance and net worth estimate."),
+        ToolDef(tool=check_storage_inventory, name="check_storage_inventory",
+                description="Check inventory levels in storage warehouse."),
+        ToolDef(tool=order_inventory, name="order_inventory",
+                description="Order new inventory from supplier. Orders take 3 days to arrive.",
+                parameters={"product": "Product name to order", "quantity": "Number of units to order"}),
+        ToolDef(tool=check_pending_orders, name="check_pending_orders",
+                description="Check status of orders currently in transit."),
+        ToolDef(tool=research_market, name="research_market",
+                description="Research market information using internet search.",
+                parameters={"query": "Search query for market research"}),
+        ToolDef(tool=wait_for_next_day, name="wait_for_next_day",
+                description="End current day and advance to next day. Overnight sales will be processed."),
+        ToolDef(tool=scratchpad_write, name="scratchpad_write",
+                description="Write a note to the scratchpad.",
+                parameters={"key": "Key/name for this note", "content": "Text content to save"}),
+        ToolDef(tool=scratchpad_read, name="scratchpad_read",
+                description="Read a note from the scratchpad.",
+                parameters={"key": "Key of the note to read"}),
+        ToolDef(tool=scratchpad_list, name="scratchpad_list",
+                description="List all keys in the scratchpad."),
+        ToolDef(tool=kv_store_write, name="kv_store_write",
+                description="Write structured data to key-value store.",
+                parameters={"key": "Key for this data", "value": "JSON string of value to store"}),
+        ToolDef(tool=kv_store_read, name="kv_store_read",
+                description="Read data from key-value store.",
+                parameters={"key": "Key to read"}),
+        ToolDef(tool=kv_store_list, name="kv_store_list",
+                description="List all keys in the key-value store."),
+    ]
+
+
+def create_physical_tools(vending_tools: VendingTools) -> List[ToolDef]:
+    """
+    Create tools that require physical world interaction (sub-agent tools).
+
+    Per VendingBench paper: "some parts of operating a vending machine requires
+    actions in the physical world" - accessed via sub-agent.
+    """
+
+    async def stock_machine(product: str, quantity: int) -> str:
+        """Move items from storage to vending machine."""
+        result = vending_tools.stock_machine(product, quantity)
+        return json.dumps(result)
+
+    async def collect_cash() -> str:
+        """Collect revenue from vending machine sales."""
+        result = vending_tools.collect_cash()
+        return json.dumps(result)
+
+    async def get_machine_inventory() -> str:
+        """Get current inventory in the vending machine (what customers can buy)."""
+        result = vending_tools.get_machine_inventory()
+        return json.dumps(result)
+
+    async def set_price(product: str, price: float) -> str:
+        """Set selling price for a product on the vending machine."""
+        result = vending_tools.set_price(product, price)
+        return json.dumps(result)
+
+    async def get_prices() -> str:
+        """Get current prices for all products from the vending machine."""
+        result = vending_tools.get_prices()
+        return json.dumps(result)
+
+    return [
+        ToolDef(tool=stock_machine, name="stock_machine",
+                description="Move items from storage to vending machine.",
+                parameters={"product": "Product name (coffee, chocolate, chips, soda)", "quantity": "Number of units to stock"}),
+        ToolDef(tool=collect_cash, name="collect_cash",
+                description="Collect revenue from vending machine sales."),
+        ToolDef(tool=get_machine_inventory, name="get_machine_inventory",
+                description="Get current inventory in the vending machine (what customers can buy)."),
+        ToolDef(tool=set_price, name="set_price",
+                description="Set selling price for a product on the vending machine.",
+                parameters={"product": "Product name", "price": "New price in dollars"}),
+        ToolDef(tool=get_prices, name="get_prices",
+                description="Get current prices for all products from the vending machine."),
+    ]
+
+
+def create_all_tools(vending_tools: VendingTools) -> List[ToolDef]:
+    """
+    Create ALL tools for direct access mode (no sub-agent).
+    Used when use_subagent=False.
+    """
+    return create_direct_tools(vending_tools) + create_physical_tools(vending_tools)
 
 
 def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
@@ -612,3 +784,94 @@ def survival_scorer() -> Scorer:
         )
 
     return score
+
+
+# =============================================================================
+# SUB-AGENT ARCHITECTURE (using multiagent-inspect from Andon Labs)
+# =============================================================================
+
+@task
+def vending_subagent(
+    simulation_days: int = 3,
+    starting_cash: float = 500.0,
+    event_complexity: str = "simple",
+    customer_model: str = "anthropic/claude-sonnet-4-5-20241022",
+    subagent_model: str = None,
+    max_subagent_steps: int = 10
+) -> Task:
+    """
+    Vending machine task with sub-agent architecture (matches VendingBench paper).
+
+    Uses multiagent-inspect from Andon Labs for sub-agent orchestration.
+    Main agent has direct tools; physical world tools go through sub-agent.
+
+    Args:
+        simulation_days: Number of days to simulate
+        starting_cash: Starting cash balance
+        event_complexity: Event complexity level
+        customer_model: Model for the main agent
+        subagent_model: Model for the sub-agent (defaults to same as main)
+        max_subagent_steps: Maximum steps the sub-agent can take per invocation
+    """
+    if subagent_model is None:
+        subagent_model = customer_model
+
+    config = SimulationConfig(
+        simulation_days=simulation_days,
+        starting_cash=starting_cash,
+        event_complexity=event_complexity,
+        max_messages=2000
+    )
+
+    # Initialize environment and tools
+    env = VendingEnvironment(config)
+    vending_tools = VendingTools(env)
+
+    # Create tool sets
+    direct_tools = create_direct_tools(vending_tools)
+    physical_tools = create_physical_tools(vending_tools)
+
+    # Build system prompt for main agent
+    main_system_prompt = build_main_agent_prompt_with_subagent(
+        starting_cash=config.starting_cash,
+        daily_fee=config.daily_fee,
+        simulation_days=config.simulation_days
+    )
+
+    # Configure sub-agent for physical world tasks
+    physical_subagent = SubAgentConfig(
+        tools=physical_tools,
+        model=subagent_model,
+        max_steps=max_subagent_steps
+    )
+
+    # Create main agent with sub-agent using multiagent-inspect
+    agent = basic_agent(
+        init=init_sub_agents([physical_subagent]),
+        tools=direct_tools,
+    )
+
+    # Dataset
+    dataset = [
+        Sample(
+            input=f"{main_system_prompt}\n\n{_build_morning_briefing(env, is_first_day=True)}",
+            metadata={
+                "simulation_days": simulation_days,
+                "starting_cash": starting_cash,
+                "event_complexity": event_complexity,
+                "customer_model": customer_model,
+                "subagent_model": subagent_model,
+                "architecture": "subagent"
+            }
+        )
+    ]
+
+    model_short = customer_model.split("/")[-1] if "/" in customer_model else customer_model
+
+    return Task(
+        dataset=dataset,
+        solver=agent,
+        scorer=[profit_scorer(), survival_scorer()],
+        name=f"vending_subagent_{model_short}_{simulation_days}d",
+        model=customer_model
+    )

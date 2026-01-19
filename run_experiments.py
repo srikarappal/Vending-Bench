@@ -13,7 +13,7 @@ import asyncio
 from inspect_ai import eval
 from inspect_ai.log import read_eval_log
 
-from tasks.baseline_task import vending_baseline
+from tasks.baseline_task import vending_baseline, vending_subagent
 from tasks.engram_task import vending_engram
 
 
@@ -24,6 +24,7 @@ def run_experiment(
     event_complexity: str = "simple",
     memory_llm_model: str = "claude-sonnet-4-5",
     customer_llm_model: str = "claude-sonnet-4-5",
+    subagent_llm_model: str = None,
     allowed_search_types: list = None,
     log_dir: str = "./experiments/logs",
     debug: bool = False
@@ -32,12 +33,13 @@ def run_experiment(
     Run a single vending machine experiment.
 
     Args:
-        agent_type: "baseline" or "engram"
+        agent_type: "baseline", "subagent", or "engram"
         simulation_days: Number of days to simulate
         starting_cash: Starting cash balance
         event_complexity: Event complexity level
         memory_llm_model: Model for memLLM-R (Engram only)
         customer_llm_model: Model for customer-facing LLM
+        subagent_llm_model: Model for sub-agent (subagent mode only)
         allowed_search_types: Search types for retrieval (Engram only)
         log_dir: Directory for experiment logs
         debug: Enable debug mode
@@ -65,6 +67,9 @@ def run_experiment(
         print(f"Memory LLM: {memory_llm_model}")
         print(f"Customer LLM: {customer_llm_model}")
         print(f"Search Types: {allowed_search_types or ['semantic', 'fulltext', 'graph']}")
+    elif agent_type == "subagent":
+        print(f"Main Agent LLM: {customer_llm_model}")
+        print(f"Sub-Agent LLM: {subagent_llm_model or customer_llm_model}")
     print(f"Log Name: {log_name}")
     print(f"{'='*70}\n")
 
@@ -75,6 +80,14 @@ def run_experiment(
             starting_cash=starting_cash,
             event_complexity=event_complexity,
             customer_model=customer_llm_model
+        )
+    elif agent_type == "subagent":
+        task = vending_subagent(
+            simulation_days=simulation_days,
+            starting_cash=starting_cash,
+            event_complexity=event_complexity,
+            customer_model=customer_llm_model,
+            subagent_model=subagent_llm_model
         )
     elif agent_type == "engram":
         task = vending_engram(
@@ -87,7 +100,7 @@ def run_experiment(
             debug=debug
         )
     else:
-        raise ValueError(f"Unknown agent type: {agent_type}. Use 'baseline' or 'engram'")
+        raise ValueError(f"Unknown agent type: {agent_type}. Use 'baseline', 'subagent', or 'engram'")
 
     # Run evaluation
     results = eval(
@@ -240,7 +253,7 @@ def main():
     parser.add_argument(
         "--agent",
         type=str,
-        choices=["baseline", "engram", "compare"],
+        choices=["baseline", "subagent", "engram", "compare"],
         default="engram",
         help="Agent type to run (default: engram)"
     )
@@ -286,6 +299,12 @@ def main():
         default=None,
         help="Allowed search types (default: all)"
     )
+    parser.add_argument(
+        "--subagent-model",
+        type=str,
+        default=None,
+        help="Model for sub-agent (subagent mode, defaults to customer-model)"
+    )
 
     # Comparison parameters
     parser.add_argument(
@@ -329,6 +348,7 @@ def main():
             event_complexity=args.complexity,
             memory_llm_model=args.memory_model,
             customer_llm_model=args.customer_model,
+            subagent_llm_model=args.subagent_model,
             allowed_search_types=args.search_types,
             log_dir=args.log_dir,
             debug=args.debug
