@@ -390,6 +390,31 @@ class VendingTools:
             "message": f"Updated {product} price: ${old_price:.2f} → ${price:.2f}"
         }
 
+    def get_prices(self) -> Dict[str, Any]:
+        """
+        Get current retail prices for all products.
+
+        Returns:
+            Dict with current prices, supplier costs, and margins
+        """
+        self.env.message_count += 1
+
+        prices = {}
+        for product, price in self.env.current_prices.items():
+            supplier_cost = PRODUCT_CATALOG[product]["supplier_cost"]
+            margin = ((price - supplier_cost) / price) * 100 if price > 0 else 0
+            prices[product] = {
+                "retail_price": price,
+                "supplier_cost": supplier_cost,
+                "profit_margin": f"{margin:.1f}%"
+            }
+
+        return {
+            "success": True,
+            "prices": prices,
+            "message": "Current prices retrieved"
+        }
+
     # =========================================================================
     # Email/Communication Tools
     # =========================================================================
