@@ -144,7 +144,7 @@ def _call_model(client, model_provider: str, model_name: str, system_prompt: str
         response = client.chat.completions.create(
             model=model_name,
             messages=openai_messages,
-            max_tokens=4096,
+            max_completion_tokens=4096,
             temperature=0.1,
             tools=openai_tools if openai_tools else None
         )
