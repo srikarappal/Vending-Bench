@@ -281,8 +281,10 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             simulation_days=config.simulation_days
         )
 
-        # Track all tool calls for logging
+        # Track all tool calls and model outputs for logging
         all_tool_calls = []
+        all_model_outputs = []  # Store full model outputs including usage/reasoning
+        total_usage = {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0}
 
         # Build initial morning briefing (Day 0 start)
         morning_briefing = _build_morning_briefing(env, is_first_day=True)
@@ -329,6 +331,36 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                 tools=tools,
             )
 
+            # Capture full model output for logging
+            model_output_record = {
+                "day": env.current_day,
+                "message_content": output.message.content if hasattr(output.message, 'content') else None,
+                "tool_calls": [{"function": tc.function, "arguments": tc.arguments, "id": tc.id}
+                              for tc in (output.message.tool_calls or [])],
+                "stop_reason": output.stop_reason if hasattr(output, 'stop_reason') else None,
+            }
+
+            # Capture usage statistics if available
+            if hasattr(output, 'usage') and output.usage:
+                usage = output.usage
+                model_output_record["usage"] = {
+                    "input_tokens": getattr(usage, 'input_tokens', 0),
+                    "output_tokens": getattr(usage, 'output_tokens', 0),
+                    "reasoning_tokens": getattr(usage, 'reasoning_tokens', 0) if hasattr(usage, 'reasoning_tokens') else 0,
+                    "total_tokens": getattr(usage, 'total_tokens', 0),
+                }
+                # Accumulate totals
+                total_usage["input_tokens"] += model_output_record["usage"]["input_tokens"] or 0
+                total_usage["output_tokens"] += model_output_record["usage"]["output_tokens"] or 0
+                total_usage["reasoning_tokens"] += model_output_record["usage"]["reasoning_tokens"] or 0
+                total_usage["total_tokens"] += model_output_record["usage"]["total_tokens"] or 0
+
+            # Capture reasoning content if available (extended thinking)
+            if hasattr(output.message, 'reasoning') and output.message.reasoning:
+                model_output_record["reasoning"] = output.message.reasoning
+
+            all_model_outputs.append(model_output_record)
+
             # Add assistant response to messages
             state.messages.append(output.message)
 
@@ -338,12 +370,22 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                 tool_messages, _ = await execute_tools(output.message, tools)
                 state.messages.extend(tool_messages)
 
-                # Track tool calls for logging
-                for tc in output.message.tool_calls:
+                # Track tool calls with results for logging
+                for i, tc in enumerate(output.message.tool_calls):
+                    # Get the corresponding tool result
+                    tool_result = None
+                    if i < len(tool_messages) and hasattr(tool_messages[i], 'content'):
+                        try:
+                            tool_result = json.loads(tool_messages[i].content) if isinstance(tool_messages[i].content, str) else tool_messages[i].content
+                        except (json.JSONDecodeError, TypeError):
+                            tool_result = tool_messages[i].content
+
                     all_tool_calls.append({
                         "day": env.current_day,
                         "tool": tc.function,
-                        "input": tc.arguments
+                        "input": tc.arguments,
+                        "result": tool_result,
+                        "tool_call_id": tc.id
                     })
 
                     # Special handling for wait_for_next_day
@@ -422,6 +464,13 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         print(f"  Total Revenue: ${metrics['total_revenue']:.2f}")
         print(f"  Days Simulated: {metrics['days_simulated']}")
         print(f"  Total Tool Calls: {len(all_tool_calls)}")
+        print(f"  Total Model Calls: {len(all_model_outputs)}")
+        print(f"  Token Usage:")
+        print(f"    Input:  {total_usage['input_tokens']:,}")
+        print(f"    Output: {total_usage['output_tokens']:,}")
+        if total_usage['reasoning_tokens'] > 0:
+            print(f"    Reasoning: {total_usage['reasoning_tokens']:,}")
+        print(f"    Total:  {total_usage['total_tokens']:,}")
         print(f"{'='*60}\n")
 
         # Log to transcript
@@ -432,15 +481,20 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             "profit_loss": metrics['profit_loss'],
             "total_revenue": metrics['total_revenue'],
             "days_simulated": metrics['days_simulated'],
-            "total_tool_calls": len(all_tool_calls)
+            "total_tool_calls": len(all_tool_calls),
+            "total_model_calls": len(all_model_outputs),
+            "total_usage": total_usage
         })
 
-        # Store results in state
+        # Store results in state (full output capture)
         state.metadata["simulation_results"] = {
             "final_metrics": metrics,
             "tool_calls": all_tool_calls,
+            "model_outputs": all_model_outputs,  # Full model outputs with usage/reasoning
+            "total_usage": total_usage,  # Aggregated token usage
             "memory_stats": memory_stats,
-            "agent_type": "baseline"
+            "agent_type": "baseline",
+            "model_name": model.name
         }
 
         # Add completion message
