@@ -34,11 +34,25 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     tool_calls = sim_results.get("tool_calls", [])
     memory_stats = sim_results.get("memory_stats", {})
 
+    # === EXTRACT CASH BALANCE ===
+    # Get final cash balance from the last wait_for_next_day call
+    final_cash_balance = 0
+    starting_cash = final_metrics.get('starting_cash', 500.0)
+    for tc in reversed(tool_calls):
+        if tc.get("tool") == "wait_for_next_day":
+            final_cash_balance = tc.get("result", {}).get("cash_balance", 0)
+            break
+
     # === FINAL METRICS ===
     print("=== FINAL METRICS ===")
+    print(f"Starting Cash:      ${starting_cash:.2f}")
+    print(f"Final Cash Balance: ${final_cash_balance:.2f}")
+    print(f"Cash Gain/Loss:     ${final_cash_balance - starting_cash:.2f}")
+    print(f"")
     print(f"Starting Net Worth: ${final_metrics.get('starting_net_worth', 0):.2f}")
     print(f"Final Net Worth:    ${final_metrics.get('final_net_worth', 0):.2f}")
     print(f"Profit/Loss:        ${final_metrics.get('profit_loss', 0):.2f}")
+    print(f"")
     print(f"Total Revenue:      ${final_metrics.get('total_revenue', 0):.2f}")
     print(f"Total Costs:        ${final_metrics.get('total_costs', 0):.2f}")
     print(f"Days Simulated:     {final_metrics.get('days_simulated', 0)}")
