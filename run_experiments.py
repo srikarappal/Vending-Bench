@@ -254,8 +254,8 @@ def main():
         "--agent",
         type=str,
         choices=["baseline", "subagent", "engram", "compare"],
-        default="engram",
-        help="Agent type to run (default: engram)"
+        default="subagent",
+        help="Agent type to run (default: subagent)"
     )
 
     # Simulation parameters
