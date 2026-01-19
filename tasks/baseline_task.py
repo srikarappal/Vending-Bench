@@ -32,64 +32,64 @@ def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
     Uses ToolDef for dynamic tool creation at runtime.
     """
 
-    # Define tool functions with type annotations (required for ToolDef)
-    def check_balance() -> str:
+    # Define async tool functions with type annotations (required for ToolDef)
+    async def check_balance() -> str:
         result = vending_tools.check_balance()
         return json.dumps(result)
 
-    def collect_cash() -> str:
+    async def collect_cash() -> str:
         result = vending_tools.collect_cash()
         return json.dumps(result)
 
-    def get_machine_inventory() -> str:
+    async def get_machine_inventory() -> str:
         result = vending_tools.get_machine_inventory()
         return json.dumps(result)
 
-    def check_storage_inventory() -> str:
+    async def check_storage_inventory() -> str:
         result = vending_tools.check_storage_inventory()
         return json.dumps(result)
 
-    def stock_machine(product: str, quantity: int) -> str:
+    async def stock_machine(product: str, quantity: int) -> str:
         result = vending_tools.stock_machine(product, quantity)
         return json.dumps(result)
 
-    def order_inventory(product: str, quantity: int) -> str:
+    async def order_inventory(product: str, quantity: int) -> str:
         result = vending_tools.order_inventory(product, quantity)
         return json.dumps(result)
 
-    def check_pending_orders() -> str:
+    async def check_pending_orders() -> str:
         result = vending_tools.check_pending_orders()
         return json.dumps(result)
 
-    def set_price(product: str, price: float) -> str:
+    async def set_price(product: str, price: float) -> str:
         result = vending_tools.set_price(product, price)
         return json.dumps(result)
 
-    def get_prices() -> str:
+    async def get_prices() -> str:
         result = vending_tools.get_prices()
         return json.dumps(result)
 
-    def research_market(query: str) -> str:
+    async def research_market(query: str) -> str:
         result = vending_tools.research_market(query)
         return json.dumps(result)
 
-    def wait_for_next_day() -> str:
+    async def wait_for_next_day() -> str:
         result = vending_tools.wait_for_next_day()
         return json.dumps(result)
 
-    def scratchpad_write(key: str, content: str) -> str:
+    async def scratchpad_write(key: str, content: str) -> str:
         result = vending_tools.scratchpad_write(key, content)
         return json.dumps(result)
 
-    def scratchpad_read(key: str) -> str:
+    async def scratchpad_read(key: str) -> str:
         result = vending_tools.scratchpad_read(key)
         return json.dumps(result)
 
-    def scratchpad_list() -> str:
+    async def scratchpad_list() -> str:
         result = vending_tools.scratchpad_list()
         return json.dumps(result)
 
-    def kv_store_write(key: str, value: str) -> str:
+    async def kv_store_write(key: str, value: str) -> str:
         try:
             parsed_value = json.loads(value)
         except (json.JSONDecodeError, TypeError):
@@ -97,11 +97,11 @@ def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
         result = vending_tools.kv_store_write(key, parsed_value)
         return json.dumps(result)
 
-    def kv_store_read(key: str) -> str:
+    async def kv_store_read(key: str) -> str:
         result = vending_tools.kv_store_read(key)
         return json.dumps(result)
 
-    def kv_store_list() -> str:
+    async def kv_store_list() -> str:
         result = vending_tools.kv_store_list()
         return json.dumps(result)
 
