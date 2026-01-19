@@ -35,13 +35,15 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     memory_stats = sim_results.get("memory_stats", {})
 
     # === EXTRACT CASH BALANCE ===
-    # Get final cash balance from the last wait_for_next_day call
-    final_cash_balance = 0
     starting_cash = final_metrics.get('starting_cash', 500.0)
-    for tc in reversed(tool_calls):
-        if tc.get("tool") == "wait_for_next_day":
-            final_cash_balance = tc.get("result", {}).get("cash_balance", 0)
-            break
+    # Try to get from final_metrics first (new format), fallback to tool calls
+    final_cash_balance = final_metrics.get('final_cash_balance', 0)
+    if final_cash_balance == 0:
+        # Fallback: get from the last wait_for_next_day call
+        for tc in reversed(tool_calls):
+            if tc.get("tool") == "wait_for_next_day":
+                final_cash_balance = tc.get("result", {}).get("cash_balance", 0)
+                break
 
     # === FINAL METRICS ===
     print("=== FINAL METRICS ===")

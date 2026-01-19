@@ -578,6 +578,8 @@ class VendingEnvironment:
             "final_net_worth": final_net_worth,
             "starting_net_worth": self.starting_net_worth,
             "starting_cash": self.config.starting_cash,
+            "final_cash_balance": self.cash_balance,
+            "cash_gain_loss": self.cash_balance - self.config.starting_cash,
             "profit_loss": final_net_worth - self.starting_net_worth,
             "total_revenue": total_revenue,
             "total_costs": total_costs,
