@@ -14,7 +14,7 @@ from inspect_ai import Task, task
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Scorer, Score, scorer, mean, accuracy
 from inspect_ai.solver import Solver, solver, Generate, TaskState
-from inspect_ai.model import ChatMessageUser, ChatMessageAssistant, get_model, execute_tools
+from inspect_ai.model import ChatMessageUser, ChatMessageAssistant, get_model, execute_tools, trim_messages
 from inspect_ai.tool import ToolDef
 from inspect_ai.log import transcript
 from inspect_ai.util import display_counter
@@ -321,97 +321,18 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             ChatMessageUser(content=system_message)
         ]
 
-        # Context window management settings (per VendingBench paper: 30,000 tokens)
-        # Approximate 4 characters per token
-        MAX_CONTEXT_TOKENS = 30000
-        CHARS_PER_TOKEN = 4
-        MAX_CONTEXT_CHARS = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN
-
-        def truncate_context(messages, system_msg, max_chars):
-            """
-            Truncate message history to fit within context window.
-            Always keeps the system message and most recent messages.
-            CRITICAL: Preserves tool call/response pairs to avoid API errors.
-            """
-            from inspect_ai.model import ChatMessageTool
-
-            # Calculate system message size
-            system_chars = len(system_msg)
-
-            # If even system message is too long, just return it
-            if system_chars >= max_chars:
-                return [ChatMessageUser(content=system_msg)]
-
-            # Available space for conversation history
-            available_chars = max_chars - system_chars
-
-            # Get conversation messages (skip first which is system)
-            conversation = messages[1:] if len(messages) > 1 else []
-
-            # If conversation fits, return all
-            total_conv_chars = sum(
-                len(str(m.content)) if hasattr(m, 'content') and m.content else 0
-                for m in conversation
-            )
-            if total_conv_chars <= available_chars:
-                return messages  # No truncation needed
-
-            # Group messages into logical units (assistant + tool responses)
-            # Each group must be kept together to maintain API consistency
-            groups = []
-            current_group = []
-
-            for msg in conversation:
-                if isinstance(msg, ChatMessageTool):
-                    # Tool messages belong with preceding group
-                    current_group.append(msg)
-                elif hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    # Assistant message with tool calls starts new group
-                    if current_group:
-                        groups.append(current_group)
-                    current_group = [msg]
-                else:
-                    # Regular message - save previous group, start new
-                    if current_group:
-                        groups.append(current_group)
-                    current_group = [msg]
-
-            # Don't forget the last group
-            if current_group:
-                groups.append(current_group)
-
-            # Build from most recent groups, going backwards
-            kept_groups = []
-            total_chars = 0
-
-            for group in reversed(groups):
-                group_chars = sum(
-                    len(str(m.content)) if hasattr(m, 'content') and m.content else 0
-                    for m in group
-                )
-                if total_chars + group_chars <= available_chars:
-                    kept_groups.insert(0, group)
-                    total_chars += group_chars
-                else:
-                    break  # Stop when we exceed budget
-
-            # Flatten groups back to message list
-            kept_messages = []
-            for group in kept_groups:
-                kept_messages.extend(group)
-
-            # Return system message + kept recent messages
-            return [ChatMessageUser(content=system_msg)] + kept_messages
-
         # Main agent-driven loop using inspect_ai's native abstractions
         while not env.is_complete:
-            # Apply context window truncation before each generate call
-            # This prevents context from growing unbounded over long simulations
-            truncated_messages = truncate_context(state.messages, system_message, MAX_CONTEXT_CHARS)
+            # Apply context window truncation using inspect_ai's built-in trim_messages()
+            # This properly handles:
+            # - Retaining system messages
+            # - Preserving tool call/response pairs
+            # - Keeping most recent conversation (preserve=0.7 by default)
+            trimmed_messages = await trim_messages(state.messages, preserve=0.7)
 
             # Generate model response with tools
             output = await model.generate(
-                input=truncated_messages,
+                input=trimmed_messages,
                 tools=tools,
             )
 
