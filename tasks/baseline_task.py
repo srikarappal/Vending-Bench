@@ -15,7 +15,7 @@ from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Scorer, Score, scorer, mean, accuracy
 from inspect_ai.solver import Solver, solver, Generate, TaskState
 from inspect_ai.model import ChatMessageUser, ChatMessageAssistant, get_model, execute_tools
-from inspect_ai.tool import tool, Tool
+from inspect_ai.tool import ToolDef
 from inspect_ai.log import transcript
 from inspect_ai.util import display_counter
 
@@ -25,144 +25,71 @@ from src.tools import VendingTools
 from src.prompts import build_system_prompt
 
 
-def create_vending_tools(vending_tools: VendingTools) -> List[Tool]:
+def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
     """
-    Create inspect_ai Tool objects from VendingTools instance.
+    Create inspect_ai ToolDef objects from VendingTools instance.
 
-    This wraps VendingTools methods as inspect_ai @tool functions.
+    Uses ToolDef for dynamic tool creation at runtime.
     """
 
-    @tool
+    # Define tool functions with type annotations (required for ToolDef)
     def check_balance() -> str:
-        """Get current cash balance and net worth estimate."""
         result = vending_tools.check_balance()
         return json.dumps(result)
 
-    @tool
     def collect_cash() -> str:
-        """Collect revenue from vending machine sales."""
         result = vending_tools.collect_cash()
         return json.dumps(result)
 
-    @tool
     def get_machine_inventory() -> str:
-        """Get current inventory in the vending machine (what customers can buy)."""
         result = vending_tools.get_machine_inventory()
         return json.dumps(result)
 
-    @tool
     def check_storage_inventory() -> str:
-        """Check inventory levels in storage warehouse."""
         result = vending_tools.check_storage_inventory()
         return json.dumps(result)
 
-    @tool
     def stock_machine(product: str, quantity: int) -> str:
-        """
-        Move items from storage to vending machine.
-
-        Args:
-            product: Product name (coffee, chocolate, chips, soda)
-            quantity: Number of units to stock
-        """
         result = vending_tools.stock_machine(product, quantity)
         return json.dumps(result)
 
-    @tool
     def order_inventory(product: str, quantity: int) -> str:
-        """
-        Order new inventory from supplier. Orders take 3 days to arrive.
-
-        Args:
-            product: Product name to order
-            quantity: Number of units to order
-        """
         result = vending_tools.order_inventory(product, quantity)
         return json.dumps(result)
 
-    @tool
     def check_pending_orders() -> str:
-        """Check status of orders currently in transit."""
         result = vending_tools.check_pending_orders()
         return json.dumps(result)
 
-    @tool
     def set_price(product: str, price: float) -> str:
-        """
-        Set selling price for a product.
-
-        Args:
-            product: Product name
-            price: New price in dollars
-        """
         result = vending_tools.set_price(product, price)
         return json.dumps(result)
 
-    @tool
     def get_prices() -> str:
-        """Get current prices for all products."""
         result = vending_tools.get_prices()
         return json.dumps(result)
 
-    @tool
     def research_market(query: str) -> str:
-        """
-        Research market information.
-
-        Args:
-            query: Search query for market research
-        """
         result = vending_tools.research_market(query)
         return json.dumps(result)
 
-    @tool
     def wait_for_next_day() -> str:
-        """
-        End current day and advance to next day.
-        Overnight sales will be processed and you'll receive a morning briefing.
-        """
         result = vending_tools.wait_for_next_day()
         return json.dumps(result)
 
-    @tool
     def scratchpad_write(key: str, content: str) -> str:
-        """
-        Write a note to the scratchpad.
-
-        Args:
-            key: Key/name for this note
-            content: Text content to save
-        """
         result = vending_tools.scratchpad_write(key, content)
         return json.dumps(result)
 
-    @tool
     def scratchpad_read(key: str) -> str:
-        """
-        Read a note from the scratchpad.
-
-        Args:
-            key: Key of the note to read
-        """
         result = vending_tools.scratchpad_read(key)
         return json.dumps(result)
 
-    @tool
     def scratchpad_list() -> str:
-        """List all keys in the scratchpad."""
         result = vending_tools.scratchpad_list()
         return json.dumps(result)
 
-    @tool
     def kv_store_write(key: str, value: str) -> str:
-        """
-        Write structured data to key-value store.
-
-        Args:
-            key: Key for this data
-            value: JSON string of value to store
-        """
-        # Parse JSON value if provided as string
         try:
             parsed_value = json.loads(value)
         except (json.JSONDecodeError, TypeError):
@@ -170,41 +97,109 @@ def create_vending_tools(vending_tools: VendingTools) -> List[Tool]:
         result = vending_tools.kv_store_write(key, parsed_value)
         return json.dumps(result)
 
-    @tool
     def kv_store_read(key: str) -> str:
-        """
-        Read data from key-value store.
-
-        Args:
-            key: Key to read
-        """
         result = vending_tools.kv_store_read(key)
         return json.dumps(result)
 
-    @tool
     def kv_store_list() -> str:
-        """List all keys in the key-value store."""
         result = vending_tools.kv_store_list()
         return json.dumps(result)
 
+    # Create ToolDef objects for each function
     return [
-        check_balance,
-        collect_cash,
-        get_machine_inventory,
-        check_storage_inventory,
-        stock_machine,
-        order_inventory,
-        check_pending_orders,
-        set_price,
-        get_prices,
-        research_market,
-        wait_for_next_day,
-        scratchpad_write,
-        scratchpad_read,
-        scratchpad_list,
-        kv_store_write,
-        kv_store_read,
-        kv_store_list,
+        ToolDef(
+            tool=check_balance,
+            name="check_balance",
+            description="Get current cash balance and net worth estimate."
+        ),
+        ToolDef(
+            tool=collect_cash,
+            name="collect_cash",
+            description="Collect revenue from vending machine sales."
+        ),
+        ToolDef(
+            tool=get_machine_inventory,
+            name="get_machine_inventory",
+            description="Get current inventory in the vending machine (what customers can buy)."
+        ),
+        ToolDef(
+            tool=check_storage_inventory,
+            name="check_storage_inventory",
+            description="Check inventory levels in storage warehouse."
+        ),
+        ToolDef(
+            tool=stock_machine,
+            name="stock_machine",
+            description="Move items from storage to vending machine.",
+            parameters={"product": "Product name (coffee, chocolate, chips, soda)", "quantity": "Number of units to stock"}
+        ),
+        ToolDef(
+            tool=order_inventory,
+            name="order_inventory",
+            description="Order new inventory from supplier. Orders take 3 days to arrive.",
+            parameters={"product": "Product name to order", "quantity": "Number of units to order"}
+        ),
+        ToolDef(
+            tool=check_pending_orders,
+            name="check_pending_orders",
+            description="Check status of orders currently in transit."
+        ),
+        ToolDef(
+            tool=set_price,
+            name="set_price",
+            description="Set selling price for a product.",
+            parameters={"product": "Product name", "price": "New price in dollars"}
+        ),
+        ToolDef(
+            tool=get_prices,
+            name="get_prices",
+            description="Get current prices for all products."
+        ),
+        ToolDef(
+            tool=research_market,
+            name="research_market",
+            description="Research market information.",
+            parameters={"query": "Search query for market research"}
+        ),
+        ToolDef(
+            tool=wait_for_next_day,
+            name="wait_for_next_day",
+            description="End current day and advance to next day. Overnight sales will be processed."
+        ),
+        ToolDef(
+            tool=scratchpad_write,
+            name="scratchpad_write",
+            description="Write a note to the scratchpad.",
+            parameters={"key": "Key/name for this note", "content": "Text content to save"}
+        ),
+        ToolDef(
+            tool=scratchpad_read,
+            name="scratchpad_read",
+            description="Read a note from the scratchpad.",
+            parameters={"key": "Key of the note to read"}
+        ),
+        ToolDef(
+            tool=scratchpad_list,
+            name="scratchpad_list",
+            description="List all keys in the scratchpad."
+        ),
+        ToolDef(
+            tool=kv_store_write,
+            name="kv_store_write",
+            description="Write structured data to key-value store.",
+            parameters={"key": "Key for this data", "value": "JSON string of value to store"}
+        ),
+        ToolDef(
+            tool=kv_store_read,
+            name="kv_store_read",
+            description="Read data from key-value store.",
+            parameters={"key": "Key to read"}
+        ),
+        ToolDef(
+            tool=kv_store_list,
+            name="kv_store_list",
+            description="List all keys in the key-value store."
+        ),
     ]
 
 
