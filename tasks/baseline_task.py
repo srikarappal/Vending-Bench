@@ -134,6 +134,8 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         display_counter("Cash +/-", "$0.00")
         display_counter("Daily Revenue", "$0.00")
         display_counter("Units Sold", "0")
+        display_counter("Total Calls", "0")
+        display_counter("Avg Calls/Day", "0.0")
 
         # Main agent-driven loop
         while not env.is_complete:
@@ -240,11 +242,15 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                     # Update display counters for inspect-ai UI
                     cash_change = cash - config.starting_cash
                     cash_change_str = f"+${cash_change:.2f}" if cash_change >= 0 else f"-${abs(cash_change):.2f}"
+                    total_calls = len(all_tool_calls)
+                    avg_calls = total_calls / new_day if new_day > 0 else 0
                     display_counter("Day", f"{new_day}/{config.simulation_days}")
                     display_counter("Cash Balance", f"${cash:.2f}")
                     display_counter("Cash +/-", cash_change_str)
                     display_counter("Daily Revenue", f"${revenue:.2f}")
                     display_counter("Units Sold", str(units))
+                    display_counter("Total Calls", str(total_calls))
+                    display_counter("Avg Calls/Day", f"{avg_calls:.1f}")
 
                     # Log to inspect transcript for live view
                     transcript().info({
