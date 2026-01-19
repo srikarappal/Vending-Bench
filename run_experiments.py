@@ -48,9 +48,11 @@ def run_experiment(
     # Create log directory
     os.makedirs(log_dir, exist_ok=True)
 
-    # Generate log filename
+    # Generate log filename with model name and days
+    # Sanitize model name (replace / with _)
+    model_short = customer_llm_model.replace("/", "_").replace(":", "_")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_name = f"{agent_type}_{simulation_days}d_{event_complexity}_{timestamp}"
+    log_name = f"{agent_type}_{model_short}_{simulation_days}d_{timestamp}"
 
     print(f"\n{'='*70}")
     print(f"Running Vending-Bench 2 Experiment")
@@ -71,7 +73,8 @@ def run_experiment(
         task = vending_baseline(
             simulation_days=simulation_days,
             starting_cash=starting_cash,
-            event_complexity=event_complexity
+            event_complexity=event_complexity,
+            customer_model=customer_llm_model
         )
     elif agent_type == "engram":
         task = vending_engram(

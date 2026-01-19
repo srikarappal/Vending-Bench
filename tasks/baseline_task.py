@@ -6,8 +6,22 @@ current state without any long-term memory.
 """
 
 import json
+import os
 from typing import Dict, List, Any
-from anthropic import Anthropic
+
+# Lazy imports for model providers - only import when needed
+def _get_anthropic_client():
+    from anthropic import Anthropic
+    return Anthropic()
+
+def _get_openai_client():
+    from openai import OpenAI
+    return OpenAI()
+
+def _get_google_client(model_name: str):
+    import google.generativeai as genai
+    genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
+    return genai.GenerativeModel(model_name), genai
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import Sample
@@ -27,7 +41,8 @@ from src.prompts import build_system_prompt
 def vending_baseline(
     simulation_days: int = 3,
     starting_cash: float = 500.0,
-    event_complexity: str = "simple"
+    event_complexity: str = "simple",
+    customer_model: str = "claude-sonnet-4-5-20241022"
 ) -> Task:
     """
     Baseline vending machine task without memory.
@@ -36,6 +51,7 @@ def vending_baseline(
         simulation_days: Number of days to simulate (1, 3, 30, or 365)
         starting_cash: Starting cash balance
         event_complexity: Event complexity level ("simple", "medium", "full")
+        customer_model: Model to use for the agent
 
     Returns:
         inspect_ai Task
@@ -54,35 +70,204 @@ def vending_baseline(
             metadata={
                 "simulation_days": simulation_days,
                 "starting_cash": starting_cash,
-                "event_complexity": event_complexity
+                "event_complexity": event_complexity,
+                "customer_model": customer_model
             }
         )
     ]
 
+    # Extract short model name for task name (e.g., "openai/gpt-4o" -> "gpt-4o")
+    model_short = customer_model.split("/")[-1] if "/" in customer_model else customer_model
+
     return Task(
         dataset=dataset,
-        solver=[baseline_agent(config)],
+        solver=[baseline_agent(config, customer_model)],
         scorer=[profit_scorer(), survival_scorer()],
-        name=f"vending_baseline_{simulation_days}d"
+        name=f"vending_{model_short}_{simulation_days}d"
     )
 
 
+def _call_model(client, model_provider: str, model_name: str, system_prompt: str,
+                conversation_history: list, tool_definitions: list, genai_module=None):
+    """
+    Call the appropriate model API based on provider.
+
+    Returns:
+        Tuple of (reasoning_text, tool_uses) where tool_uses is a list of tool call objects
+    """
+    if model_provider == "anthropic":
+        response = client.messages.create(
+            model=model_name,
+            system=system_prompt,
+            messages=conversation_history,
+            max_tokens=4096,
+            temperature=0.1,
+            tools=tool_definitions
+        )
+        reasoning_text = ""
+        tool_uses = []
+        for block in response.content:
+            if block.type == "text":
+                reasoning_text = block.text
+            elif block.type == "tool_use":
+                tool_uses.append(block)
+        return reasoning_text, tool_uses, response
+
+    elif model_provider == "openai":
+        # Convert Anthropic-style tools to OpenAI format
+        openai_tools = []
+        for tool in tool_definitions:
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "parameters": tool["input_schema"]
+                }
+            })
+
+        # Convert messages format
+        openai_messages = [{"role": "system", "content": system_prompt}]
+        for msg in conversation_history:
+            if isinstance(msg.get("content"), str):
+                openai_messages.append(msg)
+            elif isinstance(msg.get("content"), list):
+                # Handle tool results
+                for item in msg["content"]:
+                    if item.get("type") == "tool_result":
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": item["tool_use_id"],
+                            "content": item["content"]
+                        })
+
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=openai_messages,
+            max_tokens=4096,
+            temperature=0.1,
+            tools=openai_tools if openai_tools else None
+        )
+
+        reasoning_text = response.choices[0].message.content or ""
+        tool_uses = []
+
+        # Convert OpenAI tool calls to Anthropic-like format
+        if response.choices[0].message.tool_calls:
+            for tc in response.choices[0].message.tool_calls:
+                # Create an object that mimics Anthropic's tool_use block
+                class ToolUse:
+                    def __init__(self, id, name, input):
+                        self.id = id
+                        self.name = name
+                        self.input = input
+                        self.type = "tool_use"
+
+                tool_uses.append(ToolUse(
+                    id=tc.id,
+                    name=tc.function.name,
+                    input=json.loads(tc.function.arguments) if tc.function.arguments else {}
+                ))
+
+        return reasoning_text, tool_uses, response
+
+    elif model_provider == "google":
+        # For Google/Gemini, we need to use their function calling format
+        genai = genai_module  # Use passed module reference
+
+        # Convert tools to Gemini format
+        gemini_tools = []
+        for tool in tool_definitions:
+            gemini_tools.append(genai.protos.Tool(
+                function_declarations=[
+                    genai.protos.FunctionDeclaration(
+                        name=tool["name"],
+                        description=tool["description"],
+                        parameters=genai.protos.Schema(
+                            type=genai.protos.Type.OBJECT,
+                            properties={
+                                k: genai.protos.Schema(type=genai.protos.Type.STRING)
+                                for k in tool["input_schema"].get("properties", {}).keys()
+                            }
+                        )
+                    )
+                ]
+            ))
+
+        # Build prompt with system context
+        full_prompt = f"{system_prompt}\n\n"
+        for msg in conversation_history:
+            role = msg["role"]
+            content = msg["content"] if isinstance(msg["content"], str) else json.dumps(msg["content"])
+            full_prompt += f"{role.upper()}: {content}\n\n"
+
+        response = client.generate_content(
+            full_prompt,
+            tools=gemini_tools if gemini_tools else None,
+            generation_config=genai.GenerationConfig(
+                max_output_tokens=4096,
+                temperature=0.1
+            )
+        )
+
+        reasoning_text = ""
+        tool_uses = []
+
+        if response.candidates:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'text') and part.text:
+                    reasoning_text = part.text
+                elif hasattr(part, 'function_call'):
+                    class ToolUse:
+                        def __init__(self, id, name, input):
+                            self.id = id
+                            self.name = name
+                            self.input = input
+                            self.type = "tool_use"
+
+                    tool_uses.append(ToolUse(
+                        id=f"call_{len(tool_uses)}",
+                        name=part.function_call.name,
+                        input=dict(part.function_call.args)
+                    ))
+
+        return reasoning_text, tool_uses, response
+
+    else:
+        raise ValueError(f"Unsupported model provider: {model_provider}")
+
+
 @solver
-def baseline_agent(config: SimulationConfig) -> Solver:
+def baseline_agent(config: SimulationConfig, customer_model: str = "claude-sonnet-4-5-20241022") -> Solver:
     """
     Baseline agent using AGENT-DRIVEN simulation loop.
 
     Key architecture change: The agent controls time progression by calling
     wait_for_next_day. The agent can take multiple actions per day.
+
+    Args:
+        config: Simulation configuration
+        customer_model: Model to use for the agent (e.g., "anthropic/claude-sonnet-4-5-20241022")
     """
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         # Initialize simulation
         env = VendingEnvironment(config)
         tools = VendingTools(env)
 
-        # Initialize customer LLM
-        client = Anthropic()
-        customer_model = "claude-sonnet-4-5"
+        # Determine which client to use based on model provider
+        model_provider = customer_model.split("/")[0] if "/" in customer_model else "anthropic"
+        model_name = customer_model.split("/")[-1] if "/" in customer_model else customer_model
+
+        # Initialize the appropriate client (lazy imports)
+        genai_module = None
+        if model_provider == "anthropic":
+            client = _get_anthropic_client()
+        elif model_provider == "openai":
+            client = _get_openai_client()
+        elif model_provider == "google":
+            client, genai_module = _get_google_client(model_name)
+        else:
+            raise ValueError(f"Unsupported model provider: {model_provider}")
 
         # Build system prompt (updated for agent-driven architecture)
         system_prompt = build_system_prompt(
@@ -139,25 +324,16 @@ def baseline_agent(config: SimulationConfig) -> Solver:
 
         # Main agent-driven loop
         while not env.is_complete:
-            # Call LLM with current conversation
-            response = client.messages.create(
-                model=customer_model,
-                system=system_prompt,
-                messages=conversation_history,
-                max_tokens=4096,
-                temperature=0.1,
-                tools=tool_definitions
+            # Call LLM with current conversation (multi-provider support)
+            reasoning_text, tool_uses, response = _call_model(
+                client=client,
+                model_provider=model_provider,
+                model_name=model_name,
+                system_prompt=system_prompt,
+                conversation_history=conversation_history,
+                tool_definitions=tool_definitions,
+                genai_module=genai_module
             )
-
-            # Extract text reasoning (if any)
-            reasoning_text = ""
-            tool_uses = []
-
-            for block in response.content:
-                if block.type == "text":
-                    reasoning_text = block.text
-                elif block.type == "tool_use":
-                    tool_uses.append(block)
 
             # Log assistant response to transcript
             if reasoning_text:
