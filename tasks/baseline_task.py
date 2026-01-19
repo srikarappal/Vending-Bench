@@ -140,14 +140,34 @@ def _call_model(client, model_provider: str, model_name: str, system_prompt: str
             if isinstance(msg.get("content"), str):
                 openai_messages.append(msg)
             elif isinstance(msg.get("content"), list):
-                # Handle tool results
-                for item in msg["content"]:
-                    if item.get("type") == "tool_result":
+                # Check if this is an assistant message with tool_use blocks (Anthropic format)
+                if msg.get("role") == "assistant":
+                    tool_calls_for_openai = []
+                    for item in msg["content"]:
+                        if item.get("type") == "tool_use":
+                            tool_calls_for_openai.append({
+                                "id": item["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": item["name"],
+                                    "arguments": json.dumps(item["input"])
+                                }
+                            })
+                    if tool_calls_for_openai:
                         openai_messages.append({
-                            "role": "tool",
-                            "tool_call_id": item["tool_use_id"],
-                            "content": item["content"]
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": tool_calls_for_openai
                         })
+                # Check if this is a user message with tool_result blocks (Anthropic format)
+                elif msg.get("role") == "user":
+                    for item in msg["content"]:
+                        if item.get("type") == "tool_result":
+                            openai_messages.append({
+                                "role": "tool",
+                                "tool_call_id": item["tool_use_id"],
+                                "content": item["content"]
+                            })
 
         # Build request parameters
         request_params = {
