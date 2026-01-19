@@ -126,8 +126,16 @@ def _call_model(client, model_provider: str, model_name: str, system_prompt: str
                 }
             })
 
+        # Check if this is a reasoning model (o1, o3, gpt-5, etc.)
+        is_reasoning_model = any(x in model_name.lower() for x in ['o1', 'o3', 'gpt-5'])
+
         # Convert messages format
-        openai_messages = [{"role": "system", "content": system_prompt}]
+        # Reasoning models don't support system role - use developer or prepend to user
+        if is_reasoning_model:
+            openai_messages = [{"role": "developer", "content": system_prompt}]
+        else:
+            openai_messages = [{"role": "system", "content": system_prompt}]
+
         for msg in conversation_history:
             if isinstance(msg.get("content"), str):
                 openai_messages.append(msg)
@@ -141,13 +149,19 @@ def _call_model(client, model_provider: str, model_name: str, system_prompt: str
                             "content": item["content"]
                         })
 
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=openai_messages,
-            max_completion_tokens=4096,
-            temperature=0.1,
-            tools=openai_tools if openai_tools else None
-        )
+        # Build request parameters
+        request_params = {
+            "model": model_name,
+            "messages": openai_messages,
+            "max_completion_tokens": 4096,
+            "tools": openai_tools if openai_tools else None
+        }
+
+        # Reasoning models require temperature=1 or omit it
+        if not is_reasoning_model:
+            request_params["temperature"] = 0.1
+
+        response = client.chat.completions.create(**request_params)
 
         reasoning_text = response.choices[0].message.content or ""
         tool_uses = []
