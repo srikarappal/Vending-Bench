@@ -368,7 +368,9 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             # Check if model made tool calls
             if output.message.tool_calls:
                 # Execute tools using inspect_ai's execute_tools
-                tool_messages, _ = await execute_tools(output.message, tools)
+                # execute_tools expects the full message list and finds tool calls in the last assistant message
+                execute_result = await execute_tools(state.messages, tools)
+                tool_messages = execute_result.messages
                 state.messages.extend(tool_messages)
 
                 # Track tool calls with results for logging
