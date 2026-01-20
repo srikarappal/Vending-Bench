@@ -1032,7 +1032,31 @@ def subagent_agent(
                                         revenue = sales.get("total_revenue", 0)
                                         units = sales.get("total_units_sold", 0)
 
-                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} rev | {units} sold | {subagent_call_count} subagent calls", flush=True)
+                                        # Get current inventory from environment
+                                        machine_inv = env.machine_inventory
+                                        storage_inv = env.storage_inventory
+
+                                        # Count small (chips, chocolate) vs large (coffee, soda) items
+                                        small_machine = machine_inv.get("chips", 0) + machine_inv.get("chocolate", 0)
+                                        large_machine = machine_inv.get("coffee", 0) + machine_inv.get("soda", 0)
+                                        small_storage = storage_inv.get("chips", 0) + storage_inv.get("chocolate", 0)
+                                        large_storage = storage_inv.get("coffee", 0) + storage_inv.get("soda", 0)
+
+                                        # Check orders placed today
+                                        todays_orders = [tc for tc in all_tool_calls
+                                                        if tc.get("tool") == "order_inventory" and tc.get("day") == env.current_day - 1]
+                                        order_str = ""
+                                        if todays_orders:
+                                            order_details = []
+                                            for order in todays_orders:
+                                                inp = order.get("input", {})
+                                                product = inp.get("product", "?")
+                                                qty = inp.get("quantity", 0)
+                                                order_details.append(f"{qty} {product}")
+                                            order_str = f" | Orders: {', '.join(order_details)}"
+
+                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} rev | {units} sold | {subagent_call_count} subagent{order_str}", flush=True)
+                                        print(f"           Machine: {small_machine} small, {large_machine} large | Storage: {small_storage} small, {large_storage} large", flush=True)
 
                                         # Update display counters
                                         if isinstance(new_day, int):
