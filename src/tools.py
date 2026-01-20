@@ -173,7 +173,11 @@ class VendingTools:
             }
 
         # Deduct cash immediately (payment on order)
+        old_balance = self.env.cash_balance
         self.env.cash_balance -= total_cost
+
+        # Debug log for order
+        print(f"    [ORDER] {quantity} {product} @ ${supplier_cost:.2f} = ${total_cost:.2f} | Cash: ${old_balance:.2f} → ${self.env.cash_balance:.2f}", flush=True)
 
         # Calculate delivery day
         delivery_day = self.env.current_day + DELIVERY_DELAY_DAYS

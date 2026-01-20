@@ -1055,18 +1055,20 @@ def subagent_agent(
                                         small_storage = get_storage_qty("chips") + get_storage_qty("chocolate")
                                         large_storage = get_storage_qty("coffee") + get_storage_qty("soda")
 
-                                        # Check orders placed today
-                                        todays_orders = [tc for tc in all_tool_calls
-                                                        if tc.get("tool") == "order_inventory" and tc.get("day") == env.current_day - 1]
+                                        # Check orders placed yesterday (day before we slept)
+                                        # Note: new_day is the day we just woke up to, orders were placed on new_day - 1
+                                        prev_day = new_day - 1 if isinstance(new_day, int) else env.current_day - 1
+                                        yesterdays_orders = [tc for tc in all_tool_calls
+                                                            if tc.get("tool") == "order_inventory" and tc.get("day") == prev_day]
                                         order_str = ""
-                                        if todays_orders:
+                                        if yesterdays_orders:
                                             order_details = []
-                                            for order in todays_orders:
+                                            for order in yesterdays_orders:
                                                 inp = order.get("input", {})
                                                 product = inp.get("product", "?")
                                                 qty = inp.get("quantity", 0)
                                                 order_details.append(f"{qty} {product}")
-                                            order_str = f" | Orders: {', '.join(order_details)}"
+                                            order_str = f" | Ordered yesterday: {', '.join(order_details)}"
 
                                         print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} rev | {units} sold | {subagent_call_count} subagent{order_str}", flush=True)
                                         print(f"           Machine: {small_machine} small, {large_machine} large | Storage: {small_storage} small, {large_storage} large", flush=True)
