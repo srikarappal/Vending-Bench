@@ -846,11 +846,12 @@ def vending_subagent(
     )
 
     # Create main agent with sub-agent using multiagent-inspect
-    # Set message_limit high enough for full simulation (~20 messages per day)
+    # Set message_limit high enough for full simulation
+    # With subagent interactions, each day can use 50-100+ messages
     agent = basic_agent(
         init=init_sub_agents([physical_subagent]),
         tools=direct_tools,
-        message_limit=simulation_days * 25,  # Allow enough messages for full simulation
+        message_limit=simulation_days * 100,  # ~100 messages per day to be safe
     )
 
     # Dataset
