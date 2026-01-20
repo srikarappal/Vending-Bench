@@ -804,6 +804,7 @@ def vending_subagent(
 
     Uses multiagent-inspect from Andon Labs for sub-agent orchestration.
     Main agent has direct tools; physical world tools go through sub-agent.
+    Custom solver provides simulation loop control and progress logging.
 
     Args:
         simulation_days: Number of days to simulate
@@ -823,41 +824,10 @@ def vending_subagent(
         max_messages=2000
     )
 
-    # Initialize environment and tools
-    env = VendingEnvironment(config)
-    vending_tools = VendingTools(env)
-
-    # Create tool sets
-    direct_tools = create_direct_tools(vending_tools)
-    physical_tools = create_physical_tools(vending_tools)
-
-    # Build system prompt for main agent
-    main_system_prompt = build_main_agent_prompt_with_subagent(
-        starting_cash=config.starting_cash,
-        daily_fee=config.daily_fee,
-        simulation_days=config.simulation_days
-    )
-
-    # Configure sub-agent for physical world tasks
-    physical_subagent = SubAgentConfig(
-        tools=physical_tools,
-        model=resolved_subagent_model,
-        max_steps=max_subagent_steps
-    )
-
-    # Create main agent with sub-agent using multiagent-inspect
-    # Set message_limit high enough for full simulation
-    # With subagent interactions, each day can use 50-100+ messages
-    agent = basic_agent(
-        init=init_sub_agents([physical_subagent]),
-        tools=direct_tools,
-        message_limit=simulation_days * 100,  # ~100 messages per day to be safe
-    )
-
-    # Dataset
+    # Dataset with metadata
     dataset = [
         Sample(
-            input=f"{main_system_prompt}\n\n{_build_morning_briefing(env, is_first_day=True)}",
+            input=f"Run a {simulation_days}-day vending machine simulation starting with ${starting_cash:.2f}",
             metadata={
                 "simulation_days": simulation_days,
                 "starting_cash": starting_cash,
@@ -873,8 +843,291 @@ def vending_subagent(
 
     return Task(
         dataset=dataset,
-        solver=agent,
+        solver=[subagent_agent(config, resolved_subagent_model, max_subagent_steps)],
         scorer=[profit_scorer(), survival_scorer()],
         name=f"vending_subagent_{model_short}_{simulation_days}d",
         model=customer_model
     )
+
+
+@solver
+def subagent_agent(
+    config: SimulationConfig,
+    subagent_model: str,
+    max_subagent_steps: int
+) -> Solver:
+    """
+    Custom solver for sub-agent architecture with proper simulation loop control.
+
+    Uses multiagent-inspect for sub-agent tool creation, but maintains our own
+    simulation loop for:
+    - Checking env.is_complete (proper termination)
+    - Progress logging
+    - Full output capture
+    """
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        # Initialize simulation
+        env = VendingEnvironment(config)
+        vending_tools = VendingTools(env)
+
+        # Create tool sets
+        direct_tools = create_direct_tools(vending_tools)
+        physical_tools = create_physical_tools(vending_tools)
+
+        # Build system prompt for main agent (sub-agent aware)
+        system_prompt = build_main_agent_prompt_with_subagent(
+            starting_cash=config.starting_cash,
+            daily_fee=config.daily_fee,
+            simulation_days=config.simulation_days
+        )
+
+        # Configure sub-agent for physical world tasks using multiagent-inspect
+        physical_subagent = SubAgentConfig(
+            tools=physical_tools,
+            model=subagent_model,
+            max_steps=max_subagent_steps,
+            public_description="Physical world assistant for vending machine tasks (stock machine, set prices, check inventory, collect cash)"
+        )
+
+        # Initialize sub-agents - this adds run_sub_agent, chat_with_sub_agent tools to state
+        init_solver = init_sub_agents([physical_subagent])
+        state = await init_solver(state, generate)
+
+        # Get the sub-agent tools that were added to state
+        subagent_tools = state.tools if hasattr(state, 'tools') and state.tools else []
+
+        # Combine direct tools with sub-agent tools
+        all_tools = direct_tools + list(subagent_tools)
+
+        # Track all tool calls and model outputs for logging
+        all_tool_calls = []
+        all_model_outputs = []
+        total_usage = {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0}
+        subagent_call_count = 0
+
+        # Build initial morning briefing
+        morning_briefing = _build_morning_briefing(env, is_first_day=True)
+
+        # Get the model
+        model = get_model()
+
+        # Progress logging - start
+        print(f"\n{'='*60}")
+        print(f"VENDING SIMULATION STARTED (Sub-Agent Architecture)")
+        print(f"  Main Agent: {model.name}")
+        print(f"  Sub-Agent: {subagent_model}")
+        print(f"  Days: {config.simulation_days} | Starting Cash: ${config.starting_cash:.2f}")
+        print(f"{'='*60}")
+
+        # Log to inspect transcript
+        transcript().info({
+            "event": "simulation_start",
+            "architecture": "subagent",
+            "main_model": model.name,
+            "subagent_model": subagent_model,
+            "simulation_days": config.simulation_days,
+            "starting_cash": config.starting_cash
+        })
+
+        # Initial display counters
+        display_counter("Day", f"0/{config.simulation_days}")
+        display_counter("Cash Balance", f"${config.starting_cash:.2f}")
+        display_counter("Cash +/-", "$0.00")
+        display_counter("Daily Revenue", "$0.00")
+        display_counter("SubAgent Calls", "0")
+        display_counter("Total Tools", "0")
+
+        # Initialize conversation with system prompt and morning briefing
+        system_message_content = f"{system_prompt}\n\n{morning_briefing}"
+        state.messages = [
+            ChatMessageUser(content=system_message_content)
+        ]
+
+        # Main agent-driven loop with SIMULATION STATE CHECK
+        while not env.is_complete:
+            # Apply context window truncation
+            trimmed_messages = await trim_messages(state.messages, preserve=0.7)
+
+            # Generate model response with all tools (direct + sub-agent)
+            output = await model.generate(
+                input=trimmed_messages,
+                tools=all_tools,
+            )
+
+            # Capture model output for logging
+            model_output_record = {
+                "day": env.current_day,
+                "message_content": output.message.content if hasattr(output.message, 'content') else None,
+                "tool_calls": [{"function": tc.function, "arguments": tc.arguments, "id": tc.id}
+                              for tc in (output.message.tool_calls or [])],
+                "stop_reason": output.stop_reason if hasattr(output, 'stop_reason') else None,
+            }
+
+            # Capture usage statistics
+            if hasattr(output, 'usage') and output.usage:
+                usage = output.usage
+                model_output_record["usage"] = {
+                    "input_tokens": getattr(usage, 'input_tokens', 0),
+                    "output_tokens": getattr(usage, 'output_tokens', 0),
+                    "reasoning_tokens": getattr(usage, 'reasoning_tokens', 0) if hasattr(usage, 'reasoning_tokens') else 0,
+                    "total_tokens": getattr(usage, 'total_tokens', 0),
+                }
+                total_usage["input_tokens"] += model_output_record["usage"]["input_tokens"] or 0
+                total_usage["output_tokens"] += model_output_record["usage"]["output_tokens"] or 0
+                total_usage["reasoning_tokens"] += model_output_record["usage"]["reasoning_tokens"] or 0
+                total_usage["total_tokens"] += model_output_record["usage"]["total_tokens"] or 0
+
+            if hasattr(output.message, 'reasoning') and output.message.reasoning:
+                model_output_record["reasoning"] = output.message.reasoning
+
+            all_model_outputs.append(model_output_record)
+
+            # Add assistant response to messages
+            state.messages.append(output.message)
+
+            # Check if model made tool calls
+            if output.message.tool_calls:
+                # Execute tools
+                execute_result = await execute_tools(state.messages, all_tools)
+                tool_messages = execute_result.messages
+                state.messages.extend(tool_messages)
+
+                # Track tool calls with results
+                for i, tc in enumerate(output.message.tool_calls):
+                    tool_result = None
+                    # Find matching tool result by tool_call_id
+                    for tm in tool_messages:
+                        if hasattr(tm, 'tool_call_id') and tm.tool_call_id == tc.id:
+                            if hasattr(tm, 'content'):
+                                try:
+                                    tool_result = json.loads(tm.content) if isinstance(tm.content, str) else tm.content
+                                except (json.JSONDecodeError, TypeError):
+                                    tool_result = tm.content
+                            break
+
+                    # Track sub-agent calls
+                    is_subagent_call = tc.function in ["run_sub_agent", "chat_with_sub_agent"]
+                    if is_subagent_call:
+                        subagent_call_count += 1
+
+                    all_tool_calls.append({
+                        "day": env.current_day,
+                        "tool": tc.function,
+                        "input": tc.arguments,
+                        "result": tool_result,
+                        "tool_call_id": tc.id,
+                        "is_subagent": is_subagent_call
+                    })
+
+                    # Special handling for wait_for_next_day - progress logging
+                    if tc.function == "wait_for_next_day":
+                        for tm in tool_messages:
+                            if hasattr(tm, 'tool_call_id') and tm.tool_call_id == tc.id and hasattr(tm, 'content'):
+                                try:
+                                    result = json.loads(tm.content) if isinstance(tm.content, str) else tm.content
+                                    if isinstance(result, dict) and "new_day" in result:
+                                        sales = result.get("overnight_sales", {})
+                                        new_day = result.get("new_day", "?")
+                                        cash = result.get("cash_balance", 0)
+                                        revenue = sales.get("total_revenue", 0)
+                                        units = sales.get("total_units_sold", 0)
+
+                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} rev | {units} sold | {subagent_call_count} subagent calls")
+
+                                        # Update display counters
+                                        if isinstance(new_day, int):
+                                            cash_change = cash - config.starting_cash
+                                            cash_change_str = f"+${cash_change:.2f}" if cash_change >= 0 else f"-${abs(cash_change):.2f}"
+                                            display_counter("Day", f"{new_day}/{config.simulation_days}")
+                                            display_counter("Cash Balance", f"${cash:.2f}")
+                                            display_counter("Cash +/-", cash_change_str)
+                                            display_counter("Daily Revenue", f"${revenue:.2f}")
+                                            display_counter("SubAgent Calls", str(subagent_call_count))
+                                            display_counter("Total Tools", str(len(all_tool_calls)))
+
+                                        # Log to transcript
+                                        transcript().info({
+                                            "event": "day_complete",
+                                            "day": new_day,
+                                            "cash_balance": cash,
+                                            "revenue": revenue,
+                                            "units_sold": units,
+                                            "subagent_calls": subagent_call_count,
+                                            "total_tool_calls": len(all_tool_calls)
+                                        })
+
+                                        if result.get("is_simulation_complete"):
+                                            env.is_complete = True
+                                            print(f"  Simulation complete at Day {new_day}")
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                                break
+            else:
+                # No tool calls - prompt continuation
+                if not env.is_complete:
+                    state.messages.append(ChatMessageUser(
+                        content="Continue managing your vending machine business. Use your direct tools or ask the sub-agent for physical tasks. Remember to call wait_for_next_day() when you're done with today's activities."
+                    ))
+
+            # Check for bankruptcy
+            if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
+                print(f"⚠️  BANKRUPT! Could not pay daily fee for {env.consecutive_bankrupt_days} consecutive days.")
+                break
+
+            # Safety check: prevent infinite loops
+            if len(all_tool_calls) > 3000:
+                print("[SYSTEM] Maximum tool calls reached. Ending simulation.")
+                break
+
+        # Calculate final metrics
+        metrics = env.calculate_final_metrics()
+        memory_stats = vending_tools.get_memory_stats()
+
+        # Progress logging - final summary
+        print(f"\n{'='*60}")
+        print(f"SIMULATION COMPLETE (Sub-Agent Architecture)")
+        print(f"  Final Cash Balance: ${metrics.get('final_cash_balance', 0):.2f}")
+        print(f"  Final Net Worth: ${metrics['final_net_worth']:.2f}")
+        print(f"  Profit/Loss: ${metrics['profit_loss']:.2f}")
+        print(f"  Total Revenue: ${metrics['total_revenue']:.2f}")
+        print(f"  Days Simulated: {metrics['days_simulated']}")
+        print(f"  Total Tool Calls: {len(all_tool_calls)}")
+        print(f"  Sub-Agent Invocations: {subagent_call_count}")
+        print(f"  Token Usage: {total_usage['total_tokens']:,} total")
+        print(f"{'='*60}\n")
+
+        # Log to transcript
+        transcript().info({
+            "event": "simulation_complete",
+            "architecture": "subagent",
+            "final_cash_balance": metrics.get('final_cash_balance', 0),
+            "final_net_worth": metrics['final_net_worth'],
+            "profit_loss": metrics['profit_loss'],
+            "total_revenue": metrics['total_revenue'],
+            "days_simulated": metrics['days_simulated'],
+            "total_tool_calls": len(all_tool_calls),
+            "subagent_calls": subagent_call_count,
+            "total_usage": total_usage
+        })
+
+        # Store results in state (full output capture)
+        state.metadata["simulation_results"] = {
+            "final_metrics": metrics,
+            "tool_calls": all_tool_calls,
+            "model_outputs": all_model_outputs,
+            "total_usage": total_usage,
+            "memory_stats": memory_stats,
+            "agent_type": "subagent",
+            "model_name": model.name,
+            "subagent_model": subagent_model,
+            "subagent_calls": subagent_call_count
+        }
+
+        # Add completion message
+        state.messages.append(ChatMessageAssistant(
+            content=f"Simulation Complete. Final Net Worth: ${metrics['final_net_worth']:.2f}"
+        ))
+
+        return state
+
+    return solve
