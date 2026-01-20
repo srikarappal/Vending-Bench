@@ -109,7 +109,7 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     print(f"")
     print(f"Starting Net Worth: ${final_metrics.get('starting_net_worth', 0):.2f}")
     print(f"Final Net Worth:    ${final_metrics.get('final_net_worth', 0):.2f}")
-    print(f"  - Cash:           ${final_cash_balance:.2f}")
+    print(f"  - Cash Balance:   ${final_cash_balance:.2f}")
     print(f"  - Storage Value:  ${final_metrics.get('storage_value', 0):.2f}")
     print(f"  - Machine Value:  ${final_metrics.get('machine_value', 0):.2f}")
     print(f"Profit/Loss:        ${final_metrics.get('profit_loss', 0):.2f}")
