@@ -334,6 +334,9 @@ class VendingTools:
 
         slot_status = self.env.get_machine_slot_status()
 
+        # Debug log for stocking operations
+        print(f"    [STOCK] {quantity} {product} → Machine now has {self.env.machine_inventory[product]}", flush=True)
+
         return {
             "success": True,
             "product": product,

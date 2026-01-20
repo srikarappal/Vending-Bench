@@ -1009,6 +1009,12 @@ def subagent_agent(
                     is_subagent_call = tc.function in ["run_sub_agent", "chat_with_sub_agent"]
                     if is_subagent_call:
                         subagent_call_count += 1
+                        # Log subagent instruction for debugging
+                        instruction = tc.arguments.get("instruction", tc.arguments.get("message", ""))
+                        if instruction:
+                            # Truncate long instructions
+                            short_instr = instruction[:80] + "..." if len(instruction) > 80 else instruction
+                            print(f"    [SubAgent #{subagent_call_count}] {short_instr}", flush=True)
 
                     all_tool_calls.append({
                         "day": env.current_day,
