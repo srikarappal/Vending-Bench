@@ -610,7 +610,7 @@ def baseline_agent(config: SimulationConfig) -> Solver:
 
                                         if result.get("is_simulation_complete"):
                                             env.is_complete = True
-                                            print(f"  Simulation complete at Day {new_day}")
+                                            print(f"  Simulation complete at Day {new_day}", flush=True)
                                 except (json.JSONDecodeError, TypeError):
                                     pass
                                 break  # Found the matching tool message, stop searching
@@ -911,13 +911,13 @@ def subagent_agent(
         # Get the model
         model = get_model()
 
-        # Progress logging - start
-        print(f"\n{'='*60}")
-        print(f"VENDING SIMULATION STARTED (Sub-Agent Architecture)")
-        print(f"  Main Agent: {model.name}")
-        print(f"  Sub-Agent: {subagent_model}")
-        print(f"  Days: {config.simulation_days} | Starting Cash: ${config.starting_cash:.2f}")
-        print(f"{'='*60}")
+        # Progress logging - start (flush=True for immediate output)
+        print(f"\n{'='*60}", flush=True)
+        print(f"VENDING SIMULATION STARTED (Sub-Agent Architecture)", flush=True)
+        print(f"  Main Agent: {model.name}", flush=True)
+        print(f"  Sub-Agent: {subagent_model}", flush=True)
+        print(f"  Days: {config.simulation_days} | Starting Cash: ${config.starting_cash:.2f}", flush=True)
+        print(f"{'='*60}", flush=True)
 
         # Log to inspect transcript
         transcript().info({
@@ -1032,7 +1032,7 @@ def subagent_agent(
                                         revenue = sales.get("total_revenue", 0)
                                         units = sales.get("total_units_sold", 0)
 
-                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} rev | {units} sold | {subagent_call_count} subagent calls")
+                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} rev | {units} sold | {subagent_call_count} subagent calls", flush=True)
 
                                         # Update display counters
                                         if isinstance(new_day, int):
@@ -1058,7 +1058,7 @@ def subagent_agent(
 
                                         if result.get("is_simulation_complete"):
                                             env.is_complete = True
-                                            print(f"  Simulation complete at Day {new_day}")
+                                            print(f"  Simulation complete at Day {new_day}", flush=True)
                                 except (json.JSONDecodeError, TypeError):
                                     pass
                                 break
@@ -1071,30 +1071,30 @@ def subagent_agent(
 
             # Check for bankruptcy
             if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
-                print(f"⚠️  BANKRUPT! Could not pay daily fee for {env.consecutive_bankrupt_days} consecutive days.")
+                print(f"⚠️  BANKRUPT! Could not pay daily fee for {env.consecutive_bankrupt_days} consecutive days.", flush=True)
                 break
 
             # Safety check: prevent infinite loops
             if len(all_tool_calls) > 3000:
-                print("[SYSTEM] Maximum tool calls reached. Ending simulation.")
+                print("[SYSTEM] Maximum tool calls reached. Ending simulation.", flush=True)
                 break
 
         # Calculate final metrics
         metrics = env.calculate_final_metrics()
         memory_stats = vending_tools.get_memory_stats()
 
-        # Progress logging - final summary
-        print(f"\n{'='*60}")
-        print(f"SIMULATION COMPLETE (Sub-Agent Architecture)")
-        print(f"  Final Cash Balance: ${metrics.get('final_cash_balance', 0):.2f}")
-        print(f"  Final Net Worth: ${metrics['final_net_worth']:.2f}")
-        print(f"  Profit/Loss: ${metrics['profit_loss']:.2f}")
-        print(f"  Total Revenue: ${metrics['total_revenue']:.2f}")
-        print(f"  Days Simulated: {metrics['days_simulated']}")
-        print(f"  Total Tool Calls: {len(all_tool_calls)}")
-        print(f"  Sub-Agent Invocations: {subagent_call_count}")
-        print(f"  Token Usage: {total_usage['total_tokens']:,} total")
-        print(f"{'='*60}\n")
+        # Progress logging - final summary (flush=True for immediate output)
+        print(f"\n{'='*60}", flush=True)
+        print(f"SIMULATION COMPLETE (Sub-Agent Architecture)", flush=True)
+        print(f"  Final Cash Balance: ${metrics.get('final_cash_balance', 0):.2f}", flush=True)
+        print(f"  Final Net Worth: ${metrics['final_net_worth']:.2f}", flush=True)
+        print(f"  Profit/Loss: ${metrics['profit_loss']:.2f}", flush=True)
+        print(f"  Total Revenue: ${metrics['total_revenue']:.2f}", flush=True)
+        print(f"  Days Simulated: {metrics['days_simulated']}", flush=True)
+        print(f"  Total Tool Calls: {len(all_tool_calls)}", flush=True)
+        print(f"  Sub-Agent Invocations: {subagent_call_count}", flush=True)
+        print(f"  Token Usage: {total_usage['total_tokens']:,} total", flush=True)
+        print(f"{'='*60}\n", flush=True)
 
         # Log to transcript
         transcript().info({
