@@ -1036,11 +1036,18 @@ def subagent_agent(
                                         machine_inv = env.machine_inventory
                                         storage_inv = env.storage_inventory
 
+                                        # Helper to get quantity from storage (handles InventoryItem objects)
+                                        def get_storage_qty(product):
+                                            items = storage_inv.get(product, [])
+                                            if isinstance(items, list):
+                                                return sum(item.quantity if hasattr(item, 'quantity') else 0 for item in items)
+                                            return items if isinstance(items, int) else 0
+
                                         # Count small (chips, chocolate) vs large (coffee, soda) items
                                         small_machine = machine_inv.get("chips", 0) + machine_inv.get("chocolate", 0)
                                         large_machine = machine_inv.get("coffee", 0) + machine_inv.get("soda", 0)
-                                        small_storage = storage_inv.get("chips", 0) + storage_inv.get("chocolate", 0)
-                                        large_storage = storage_inv.get("coffee", 0) + storage_inv.get("soda", 0)
+                                        small_storage = get_storage_qty("chips") + get_storage_qty("chocolate")
+                                        large_storage = get_storage_qty("coffee") + get_storage_qty("soda")
 
                                         # Check orders placed today
                                         todays_orders = [tc for tc in all_tool_calls
