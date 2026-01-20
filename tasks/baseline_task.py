@@ -846,11 +846,11 @@ def vending_subagent(
     )
 
     # Create main agent with sub-agent using multiagent-inspect
-    # Set max_steps high enough for full simulation (roughly 20 steps per day)
+    # Set message_limit high enough for full simulation (~20 messages per day)
     agent = basic_agent(
         init=init_sub_agents([physical_subagent]),
         tools=direct_tools,
-        max_steps=simulation_days * 30,  # Allow enough steps for full simulation
+        message_limit=simulation_days * 25,  # Allow enough messages for full simulation
     )
 
     # Dataset
