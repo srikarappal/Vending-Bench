@@ -115,12 +115,16 @@ class VendingEnvironment:
         if config.starting_inventory_units > 0:
             self._initialize_starter_inventory(config.starting_inventory_units)
 
-        # Calculate and store starting net worth (cash + inventory value)
+        # Calculate and store starting net worth (cash + all inventory at wholesale)
         starting_storage_value = sum(
             sum(item.supplier_cost * item.quantity for item in items)
             for items in self.storage_inventory.values()
         )
-        self.starting_net_worth = self.cash_balance + starting_storage_value
+        starting_machine_value = sum(
+            PRODUCT_CATALOG[product]["supplier_cost"] * quantity
+            for product, quantity in self.machine_inventory.items()
+        )
+        self.starting_net_worth = self.cash_balance + starting_storage_value + starting_machine_value
 
         # Starting state report
         self._log_daily_report()
@@ -422,13 +426,19 @@ class VendingEnvironment:
 
     def _log_daily_report(self) -> Dict[str, Any]:
         """Generate and store daily business report."""
-        # Calculate total inventory value
+        # Calculate storage inventory value (wholesale price)
         storage_value = sum(
             sum(item.supplier_cost * item.quantity for item in items)
             for items in self.storage_inventory.values()
         )
 
-        # Count machine inventory
+        # Calculate machine inventory value (wholesale price)
+        machine_value = sum(
+            PRODUCT_CATALOG[product]["supplier_cost"] * quantity
+            for product, quantity in self.machine_inventory.items()
+        )
+
+        # Count machine inventory units
         machine_units = sum(self.machine_inventory.values())
 
         report = {
@@ -440,9 +450,10 @@ class VendingEnvironment:
             },
             "machine_inventory": self.machine_inventory.copy(),
             "storage_value": storage_value,
+            "machine_value": machine_value,
             "machine_units": machine_units,
             "current_prices": self.current_prices.copy(),
-            "net_worth": self.cash_balance + storage_value
+            "net_worth": self.cash_balance + storage_value + machine_value
         }
 
         self.daily_reports.append(report)
@@ -549,13 +560,26 @@ class VendingEnvironment:
         return True
 
     def calculate_final_metrics(self) -> Dict[str, Any]:
-        """Calculate final business metrics."""
-        # Net worth calculation
+        """Calculate final business metrics.
+
+        Net worth per VendingBench 2.4:
+        - Cash at hand
+        - Cash not emptied from vending machine (in our sim, sales go directly to cash_balance)
+        - Value of unsold products in storage AND machine (at wholesale price)
+        """
+        # Storage inventory value (wholesale price)
         storage_value = sum(
             sum(item.supplier_cost * item.quantity for item in items)
             for items in self.storage_inventory.values()
         )
-        final_net_worth = self.cash_balance + storage_value
+
+        # Machine inventory value (wholesale price)
+        machine_value = sum(
+            PRODUCT_CATALOG[product]["supplier_cost"] * quantity
+            for product, quantity in self.machine_inventory.items()
+        )
+
+        final_net_worth = self.cash_balance + storage_value + machine_value
 
         # Revenue and profit calculations
         total_revenue = sum(
@@ -579,6 +603,8 @@ class VendingEnvironment:
             "starting_net_worth": self.starting_net_worth,
             "starting_cash": self.config.starting_cash,
             "final_cash_balance": self.cash_balance,
+            "storage_value": storage_value,
+            "machine_value": machine_value,
             "cash_gain_loss": self.cash_balance - self.config.starting_cash,
             "profit_loss": final_net_worth - self.starting_net_worth,
             "total_revenue": total_revenue,
