@@ -63,7 +63,7 @@ def create_direct_tools(vending_tools: VendingTools) -> List[ToolDef]:
 
     async def research_market(query: str) -> str:
         """Research market information using internet search."""
-        result = vending_tools.research_market(query)
+        result = vending_tools.research_product(query)
         return json.dumps(result)
 
     async def wait_for_next_day() -> str:
