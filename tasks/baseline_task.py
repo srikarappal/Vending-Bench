@@ -882,8 +882,12 @@ def subagent_agent(
         )
 
         # Configure sub-agent for physical world tasks using multiagent-inspect
+        # Note: SubAgentConfig expects raw callable functions, not ToolDef objects
+        # Extract the underlying tool functions from our ToolDef objects
+        physical_tool_functions = [td.tool for td in physical_tools]
+
         physical_subagent = SubAgentConfig(
-            tools=physical_tools,
+            tools=physical_tool_functions,
             model=subagent_model,
             max_steps=max_subagent_steps,
             public_description="Physical world assistant for vending machine tasks (stock machine, set prices, check inventory, collect cash)"
