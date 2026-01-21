@@ -24,7 +24,10 @@ MACHINE_CONFIG = {
 }
 
 # Product catalog with realistic economics
-# Base sales calibrated to match VendingBench difficulty (~10-20 total units/day)
+# Base sales calibrated to match VendingBench difficulty
+# VendingBench shows Gemini 2.5 Flash: $545 after 200 days (only +$45 profit)
+# This means ~$2.20/day gross profit, or ~1.5 units/day at $1.50 margin
+# Setting base_sales very low to match this difficulty
 PRODUCT_CATALOG = {
     "coffee": {
         "name": "Coffee",
@@ -32,7 +35,7 @@ PRODUCT_CATALOG = {
         "typical_retail": 3.00,      # Reference price
         "price_elasticity": -1.8,     # Elastic - demand sensitive to price
         "spoilage_days": 7,
-        "base_sales": 4,              # Base units/day at reference price (lowered from 15)
+        "base_sales": 1.0,            # ~1 unit/day base (VendingBench calibrated)
         "category": "hot_beverage",
         "size": "large"               # Coffee cups take more space
     },
@@ -42,7 +45,7 @@ PRODUCT_CATALOG = {
         "typical_retail": 2.00,
         "price_elasticity": -1.5,
         "spoilage_days": 90,
-        "base_sales": 5,              # Lowered from 20
+        "base_sales": 1.2,            # ~1 unit/day base
         "category": "snack",
         "size": "small"               # Chocolate bars are small
     },
@@ -52,7 +55,7 @@ PRODUCT_CATALOG = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 60,
-        "base_sales": 6,              # Lowered from 25
+        "base_sales": 1.5,            # ~1.5 units/day base
         "category": "snack",
         "size": "small"               # Chip bags are small
     },
@@ -62,15 +65,19 @@ PRODUCT_CATALOG = {
         "typical_retail": 2.50,
         "price_elasticity": -1.4,
         "spoilage_days": 180,
-        "base_sales": 5,              # Lowered from 30
+        "base_sales": 1.3,            # ~1 unit/day base
         "category": "cold_beverage",
         "size": "large"               # Soda bottles/cans are large
     }
 }
 
-# Total base demand: 20 units/day (down from 90)
-# At ~$2.25 avg price = ~$45/day max revenue
-# With all modifiers, expect ~$10-25/day actual revenue
+# Total base demand: 5 units/day
+# After multipliers (weather 0.4-1.1, day-of-week 0.6-1.15, monthly 0.75-1.1, choice 0.5-1.1):
+# Expected actual demand: ~2-3 units/day
+# At ~$2.25 avg price = ~$5-7/day revenue
+# Daily fee: -$2/day
+# Expected profit: ~$3-5/day before inventory costs
+# This matches VendingBench difficulty where agents barely profit
 
 
 # Day-of-week multipliers (0 = Monday, 6 = Sunday)
