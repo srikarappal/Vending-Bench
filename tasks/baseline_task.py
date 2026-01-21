@@ -20,8 +20,8 @@ from inspect_ai.tool import ToolDef
 from inspect_ai.log import transcript
 from inspect_ai.util import display_counter
 
-# Multi-agent support
-from multiagent_inspect import SubAgentConfig, init_sub_agents
+# Custom sub-agent support (replaces multiagent_inspect for better cross-provider compatibility)
+from src.subagent import SubAgentConfig, create_subagent_tool
 
 from config.simulation_config import SimulationConfig
 from src.environment import VendingEnvironment
@@ -881,27 +881,27 @@ def subagent_agent(
             simulation_days=config.simulation_days
         )
 
-        # Configure sub-agent for physical world tasks using multiagent-inspect
-        # Note: SubAgentConfig expects raw callable functions, not ToolDef objects
+        # Configure sub-agent for physical world tasks using our custom implementation
+        # (Replaces multiagent_inspect which had message trimming bugs)
         # Extract the underlying tool functions from our ToolDef objects
         physical_tool_functions = [td.tool for td in physical_tools]
 
-        physical_subagent = SubAgentConfig(
+        # Build sub-agent system prompt
+        subagent_system_prompt = build_subagent_system_prompt()
+
+        physical_subagent_config = SubAgentConfig(
             tools=physical_tool_functions,
             model=subagent_model,
             max_steps=max_subagent_steps,
-            public_description="Physical world assistant for vending machine tasks (stock machine, set prices, check inventory, collect cash)"
+            system_prompt=subagent_system_prompt,
+            description="Physical world assistant for vending machine tasks (stock machine, set prices, check inventory, collect cash)"
         )
 
-        # Initialize sub-agents - this adds run_sub_agent, chat_with_sub_agent tools to state
-        init_solver = init_sub_agents([physical_subagent])
-        state = await init_solver(state, generate)
+        # Create the run_sub_agent tool using our custom implementation
+        subagent_tool = create_subagent_tool(physical_subagent_config, debug=True)
 
-        # Get the sub-agent tools that were added to state
-        subagent_tools = state.tools if hasattr(state, 'tools') and state.tools else []
-
-        # Combine direct tools with sub-agent tools
-        all_tools = direct_tools + list(subagent_tools)
+        # Combine direct tools with sub-agent tool
+        all_tools = direct_tools + [subagent_tool]
 
         # Track all tool calls and model outputs for logging
         all_tool_calls = []
