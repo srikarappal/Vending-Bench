@@ -7,7 +7,31 @@ Runs baseline and Engram agents across different simulation configurations.
 import argparse
 import os
 import json
+import logging
+import warnings
 from datetime import datetime
+
+# Suppress Google API key warning (must be done before any imports that trigger it)
+class DuplicateFilter(logging.Filter):
+    """Filter that suppresses duplicate log messages."""
+    def __init__(self):
+        super().__init__()
+        self.seen = set()
+
+    def filter(self, record):
+        msg = record.getMessage()
+        if "GOOGLE_API_KEY" in msg and "GEMINI_API_KEY" in msg:
+            if msg in self.seen:
+                return False
+            self.seen.add(msg)
+        return True
+
+# Apply filter to root logger and specific loggers
+for logger_name in ["", "inspect_ai", "inspect_ai._util", "inspect_ai._util._api_client"]:
+    logger = logging.getLogger(logger_name)
+    logger.addFilter(DuplicateFilter())
+
+warnings.filterwarnings("ignore", message=".*GOOGLE_API_KEY.*GEMINI_API_KEY.*")
 
 import asyncio
 from inspect_ai import eval
@@ -27,7 +51,9 @@ def run_experiment(
     subagent_llm_model: str = None,
     allowed_search_types: list = None,
     log_dir: str = "./experiments/logs",
-    debug: bool = False
+    debug: bool = False,
+    prefix: str = None,
+    email_system_enabled: bool = False
 ):
     """
     Run a single vending machine experiment.
@@ -43,6 +69,8 @@ def run_experiment(
         allowed_search_types: Search types for retrieval (Engram only)
         log_dir: Directory for experiment logs
         debug: Enable debug mode
+        prefix: Optional prefix for log filename identification
+        email_system_enabled: Enable VendingBench 2 style email-based supplier negotiation
 
     Returns:
         Evaluation results
@@ -54,7 +82,10 @@ def run_experiment(
     # Sanitize model name (replace / with _)
     model_short = customer_llm_model.replace("/", "_").replace(":", "_")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_name = f"{agent_type}_{model_short}_{simulation_days}d_{timestamp}"
+    if prefix:
+        log_name = f"{prefix}_{agent_type}_{model_short}_{simulation_days}d_{timestamp}"
+    else:
+        log_name = f"{agent_type}_{model_short}_{simulation_days}d_{timestamp}"
 
     print(f"\n{'='*70}")
     print(f"Running Vending-Bench 2 Experiment")
@@ -63,6 +94,7 @@ def run_experiment(
     print(f"Simulation Days: {simulation_days}")
     print(f"Starting Cash: ${starting_cash:.2f}")
     print(f"Event Complexity: {event_complexity}")
+    print(f"Ordering Mode: {'EMAIL (supplier negotiation)' if email_system_enabled else 'DIRECT (fixed prices)'}")
     if agent_type == "engram":
         print(f"Memory LLM: {memory_llm_model}")
         print(f"Customer LLM: {customer_llm_model}")
@@ -79,7 +111,8 @@ def run_experiment(
             simulation_days=simulation_days,
             starting_cash=starting_cash,
             event_complexity=event_complexity,
-            customer_model=customer_llm_model
+            customer_model=customer_llm_model,
+            email_system_enabled=email_system_enabled
         )
     elif agent_type == "subagent":
         task = vending_subagent(
@@ -88,6 +121,7 @@ def run_experiment(
             event_complexity=event_complexity,
             customer_model=customer_llm_model,
             subagent_model=subagent_llm_model
+            # Note: email_system_enabled not yet supported for subagent mode
         )
     elif agent_type == "engram":
         task = vending_engram(
@@ -326,6 +360,18 @@ def main():
         action="store_true",
         help="Enable debug mode"
     )
+    parser.add_argument(
+        "--prefix",
+        type=str,
+        default=None,
+        help="Prefix for log filename identification (e.g., 'exp1' -> 'exp1_baseline_model_200d_...')"
+    )
+    parser.add_argument(
+        "--email-system",
+        action="store_true",
+        default=False,
+        help="Enable VendingBench 2 style email-based supplier negotiation (default: direct ordering)"
+    )
 
     args = parser.parse_args()
 
@@ -351,7 +397,9 @@ def main():
             subagent_llm_model=args.subagent_model,
             allowed_search_types=args.search_types,
             log_dir=args.log_dir,
-            debug=args.debug
+            debug=args.debug,
+            prefix=args.prefix,
+            email_system_enabled=args.email_system
         )
 
 

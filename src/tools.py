@@ -508,6 +508,201 @@ class VendingTools:
         }
 
     # =========================================================================
+    # Email System Tools (VendingBench 2 Supplier Negotiation)
+    # =========================================================================
+
+    def search_suppliers(self, query: str = None) -> Dict[str, Any]:
+        """
+        Search for wholesale suppliers for vending machine products.
+
+        Use this to discover suppliers you can contact via email.
+        Different suppliers have different prices and reliability.
+
+        Args:
+            query: Optional search query (e.g., "wholesale snacks", "bulk beverages")
+
+        Returns:
+            Dict with list of supplier names and email addresses
+        """
+        self.env.message_count += 1
+
+        if not self.env.email_system_enabled:
+            return {
+                "success": False,
+                "error": "Email system not enabled. Use order_inventory() for direct ordering."
+            }
+
+        from src.suppliers import list_all_suppliers
+
+        suppliers = list_all_suppliers()
+
+        # Format supplier list for agent
+        supplier_list = [
+            {
+                "name": s.name,
+                "email": s.email,
+                "min_order": s.min_order_quantity,
+                "delivery_days": s.delivery_days
+            }
+            for s in suppliers
+        ]
+
+        return {
+            "success": True,
+            "suppliers": supplier_list,
+            "count": len(supplier_list),
+            "message": f"Found {len(supplier_list)} suppliers. Contact them via email to inquire about products and prices."
+        }
+
+    def send_supplier_email(self, to: str, subject: str, body: str) -> Dict[str, Any]:
+        """
+        Send an email to a supplier to inquire about products or negotiate prices.
+
+        The supplier will respond within 1-2 days (after you call wait_for_next_day).
+        Check your inbox with list_supplier_emails() and read_supplier_email().
+
+        Args:
+            to: Supplier's email address
+            subject: Email subject
+            body: Your message to the supplier
+
+        Returns:
+            Dict with confirmation and expected response time
+        """
+        self.env.message_count += 1
+
+        if not self.env.email_system_enabled:
+            return {
+                "success": False,
+                "error": "Email system not enabled. Use order_inventory() for direct ordering."
+            }
+
+        result = self.env.queue_outgoing_email(to, subject, body)
+
+        if result["success"]:
+            return {
+                "success": True,
+                "email_id": result["email_id"],
+                "to": result["to"],
+                "subject": subject,
+                "expected_response": f"Day {result['response_expected_day']}",
+                "message": f"Email sent to {result['to']}. Expect a response by Day {result['response_expected_day']}. Use wait_for_next_day() to advance time."
+            }
+        else:
+            return result
+
+    def list_supplier_emails(self, unread_only: bool = False) -> Dict[str, Any]:
+        """
+        List all emails in your supplier inbox.
+
+        Use this to see responses from suppliers after waiting for the next day.
+
+        Args:
+            unread_only: If True, only show unread emails
+
+        Returns:
+            Dict with list of emails (id, from, subject, day, read status)
+        """
+        self.env.message_count += 1
+
+        if not self.env.email_system_enabled:
+            return {
+                "success": False,
+                "error": "Email system not enabled."
+            }
+
+        emails = self.env.get_supplier_inbox(unread_only)
+
+        return {
+            "success": True,
+            "emails": emails,
+            "total": len(emails),
+            "unread": sum(1 for e in emails if not e["read"]),
+            "message": f"You have {len(emails)} emails ({sum(1 for e in emails if not e['read'])} unread)"
+        }
+
+    def read_supplier_email(self, email_id: int) -> Dict[str, Any]:
+        """
+        Read a specific email from a supplier.
+
+        Args:
+            email_id: The ID of the email to read
+
+        Returns:
+            Dict with full email content
+        """
+        self.env.message_count += 1
+
+        if not self.env.email_system_enabled:
+            return {
+                "success": False,
+                "error": "Email system not enabled."
+            }
+
+        email = self.env.read_supplier_email(email_id)
+
+        if email:
+            return {
+                "success": True,
+                "email": email,
+                "message": f"Email from {email['from']}"
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Email with ID {email_id} not found"
+            }
+
+    def send_payment(
+        self,
+        to: str,
+        amount: float,
+        products: Dict[str, int],
+        description: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Send payment to a supplier to complete an order.
+
+        IMPORTANT: Only send payment after agreeing on terms via email!
+        The amount should match what you negotiated with the supplier.
+
+        Args:
+            to: Supplier's email address
+            amount: Total payment amount
+            products: Dict of products to order, e.g., {"coffee": 50, "chips": 30}
+            description: Order description (optional)
+
+        Returns:
+            Dict with payment confirmation and expected delivery
+        """
+        self.env.message_count += 1
+
+        if not self.env.email_system_enabled:
+            return {
+                "success": False,
+                "error": "Email system not enabled. Use order_inventory() for direct ordering."
+            }
+
+        result = self.env.process_supplier_payment(to, amount, products, description)
+
+        if result["success"]:
+            # Log the payment
+            print(f"    [PAYMENT] ${amount:.2f} to {result['supplier']} for {products} | Delivery: Day {result['expected_delivery_day']}", flush=True)
+
+            return {
+                "success": True,
+                "order_id": result["order_id"],
+                "amount_paid": result["amount_paid"],
+                "products": result["products"],
+                "supplier": result["supplier"],
+                "expected_delivery": f"Day {result['expected_delivery_day']}",
+                "new_balance": self.env.cash_balance,
+                "message": f"Payment of ${amount:.2f} sent to {result['supplier']}. Order {result['order_id']} will arrive on Day {result['expected_delivery_day']}."
+            }
+        else:
+            return result
+
+    # =========================================================================
     # Time Control Tool (CRITICAL for agent-driven simulation)
     # =========================================================================
 
@@ -1119,3 +1314,146 @@ CURRENT STATUS:
                 "value_types": {k: type(v).__name__ for k, v in self.kv_store.items()}
             }
         }
+
+    def get_email_mode_tools(self) -> List[Dict[str, Any]]:
+        """
+        Get tool definitions for EMAIL MODE (VendingBench 2 supplier negotiation).
+
+        In this mode:
+        - order_inventory is NOT available
+        - Agent must use search_suppliers, send_supplier_email, send_payment
+
+        Returns:
+            List of tool definitions for email mode
+        """
+        return [
+            # === TIME CONTROL ===
+            {
+                "name": "wait_for_next_day",
+                "description": "CRITICAL: End your day and sleep until tomorrow. Customers buy from your machine overnight, and supplier emails arrive. Use this when you're done with today's activities.",
+                "parameters": {}
+            },
+            # === SUPPLIER/EMAIL TOOLS (EMAIL MODE ONLY) ===
+            {
+                "name": "search_suppliers",
+                "description": "Search for wholesale suppliers. Returns list of supplier names and email addresses. Contact them via email to get prices.",
+                "parameters": {
+                    "query": "(Optional) Search query like 'wholesale snacks'"
+                }
+            },
+            {
+                "name": "send_supplier_email",
+                "description": "Send email to a supplier to inquire about products, prices, or negotiate. Supplier responds within 1-2 days.",
+                "parameters": {
+                    "to": "Supplier's email address",
+                    "subject": "Email subject",
+                    "body": "Your message"
+                }
+            },
+            {
+                "name": "list_supplier_emails",
+                "description": "List emails in your inbox from suppliers. Check after wait_for_next_day() to see responses.",
+                "parameters": {
+                    "unread_only": "(Optional) If true, only show unread emails"
+                }
+            },
+            {
+                "name": "read_supplier_email",
+                "description": "Read a specific email from a supplier",
+                "parameters": {
+                    "email_id": "Email ID to read"
+                }
+            },
+            {
+                "name": "send_payment",
+                "description": "Send payment to supplier after agreeing on terms via email. This places your order.",
+                "parameters": {
+                    "to": "Supplier's email address",
+                    "amount": "Total payment amount",
+                    "products": "Dict of products e.g. {\"coffee\": 50, \"chips\": 30}",
+                    "description": "(Optional) Order description"
+                }
+            },
+            # === INVENTORY MANAGEMENT ===
+            {
+                "name": "check_storage_inventory",
+                "description": "View items in storage (not yet in vending machine)",
+                "parameters": {}
+            },
+            {
+                "name": "get_machine_inventory",
+                "description": "View items in vending machine and their prices",
+                "parameters": {}
+            },
+            {
+                "name": "stock_machine",
+                "description": "Move items from storage to vending machine",
+                "parameters": {
+                    "product": "Product name (coffee, chocolate, chips, soda)",
+                    "quantity": "Units to move"
+                }
+            },
+            {
+                "name": "check_pending_orders",
+                "description": "Check status of orders in transit",
+                "parameters": {}
+            },
+            # === PRICING ===
+            {
+                "name": "set_price",
+                "description": "Set retail price for a product",
+                "parameters": {
+                    "product": "Product name",
+                    "price": "New price in dollars"
+                }
+            },
+            # === FINANCIAL ===
+            {
+                "name": "check_balance",
+                "description": "Get current cash balance",
+                "parameters": {}
+            },
+            # === RESEARCH ===
+            {
+                "name": "research_product",
+                "description": "Research product information and market trends",
+                "parameters": {
+                    "query": "Research query"
+                }
+            },
+            # === MEMORY ===
+            {
+                "name": "scratchpad_write",
+                "description": "Write notes for future reference",
+                "parameters": {
+                    "key": "Note name",
+                    "content": "Content"
+                }
+            },
+            {
+                "name": "scratchpad_read",
+                "description": "Read a note",
+                "parameters": {
+                    "key": "Note name"
+                }
+            },
+            {
+                "name": "scratchpad_list",
+                "description": "List all notes",
+                "parameters": {}
+            },
+        ]
+
+    def get_direct_mode_tools(self) -> List[Dict[str, Any]]:
+        """
+        Get tool definitions for DIRECT MODE (current behavior, no email negotiation).
+
+        In this mode:
+        - order_inventory IS available at fixed catalog prices
+        - No supplier email tools
+
+        Returns:
+            List of tool definitions for direct mode
+        """
+        # Return the existing tool list (which includes order_inventory)
+        return self.get_tool_list()

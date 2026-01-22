@@ -2,12 +2,14 @@
 Core vending machine business simulation environment.
 
 Manages business state, inventory, finances, and progression.
+Supports both direct ordering and email-based supplier negotiation.
 """
 
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
+import uuid
 
 from src.products import PRODUCT_CATALOG, MACHINE_CONFIG, calculate_demand, get_seasonal_factor
 from config.simulation_config import SimulationConfig
@@ -65,9 +67,15 @@ class VendingEnvironment:
     - Transaction history
     """
 
-    def __init__(self, config: SimulationConfig):
-        """Initialize simulation environment."""
+    def __init__(self, config: SimulationConfig, email_system_enabled: bool = False):
+        """Initialize simulation environment.
+
+        Args:
+            config: Simulation configuration
+            email_system_enabled: If True, use email-based supplier negotiation
+        """
         self.config = config
+        self.email_system_enabled = email_system_enabled
 
         # Simulation state
         self.current_day = 0
@@ -100,9 +108,17 @@ class VendingEnvironment:
         self.daily_reports: List[Dict[str, Any]] = []
         self.days_profitable = 0
 
-        # Email/communication system
+        # Email/communication system (for direct mode - simple notifications)
         self.email_inbox: List[Dict[str, Any]] = []
         self.email_sent: List[Dict[str, Any]] = []
+
+        # Email system (VendingBench 2 style supplier negotiation)
+        if email_system_enabled:
+            from src.suppliers import SupplierEmail
+            self.supplier_inbox: List[SupplierEmail] = []  # Emails from suppliers
+            self.supplier_outbox: List[SupplierEmail] = []  # Pending emails awaiting response
+            self.email_conversations: Dict[str, List[SupplierEmail]] = {}  # supplier_id -> email chain
+            self.next_email_id = 1
 
         # Pending orders (orders in transit, not yet delivered)
         self.pending_orders: List[PendingOrder] = []
@@ -110,6 +126,12 @@ class VendingEnvironment:
         # Bankruptcy tracking (paper: terminate after 10 consecutive days of not paying fee)
         self.consecutive_bankrupt_days = 0
         self.bankruptcy_threshold = 10  # Days before termination
+
+        # Token cost tracking (VendingBench 2: $100 per million output tokens, charged weekly)
+        self.token_cost_per_million = 100.0  # $100 per million output tokens
+        self.accumulated_output_tokens = 0
+        self.total_token_costs = 0.0
+        self.last_token_charge_day = 0
 
         # Initialize starter inventory if configured
         if config.starting_inventory_units > 0:
@@ -156,7 +178,8 @@ class VendingEnvironment:
         3. Process deliveries (orders that have arrived)
         4. Charge daily operating fee
         5. Process spoilage
-        6. Generate morning briefing
+        6. Process supplier email responses (if email system enabled)
+        7. Generate morning briefing
 
         Returns:
             Dictionary with overnight sales report and morning briefing
@@ -176,16 +199,21 @@ class VendingEnvironment:
         # 5. Check for spoilage
         spoiled = self._process_spoilage()
 
-        # 6. Generate daily report
+        # 6. Process supplier email responses (if email system enabled)
+        new_emails = []
+        if self.email_system_enabled:
+            new_emails = self._process_supplier_emails()
+
+        # 7. Generate daily report
         report = self._log_daily_report()
 
-        # 7. Check if simulation is complete (days finished OR bankrupt)
+        # 8. Check if simulation is complete (days finished OR bankrupt)
         if self.current_day >= self.config.simulation_days:
             self.is_complete = True
         if is_bankrupt:
             self.is_complete = True
 
-        return {
+        result = {
             "overnight_sales": overnight_sales,
             "deliveries": deliveries,
             "spoiled_items": spoiled,
@@ -196,6 +224,11 @@ class VendingEnvironment:
             "is_bankrupt": is_bankrupt,
             "consecutive_bankrupt_days": self.consecutive_bankrupt_days
         }
+
+        if self.email_system_enabled and new_emails:
+            result["new_emails"] = len(new_emails)
+
+        return result
 
     def _process_deliveries(self) -> List[Dict[str, Any]]:
         """
@@ -234,6 +267,276 @@ class VendingEnvironment:
         self.pending_orders = remaining_orders
         return delivered
 
+    def _process_supplier_emails(self) -> List[Dict[str, Any]]:
+        """
+        Process pending supplier emails and generate responses.
+
+        Called during overnight processing when email system is enabled.
+
+        Returns:
+            List of new emails added to inbox
+        """
+        if not self.email_system_enabled:
+            return []
+
+        from src.suppliers import get_supplier_by_email, SupplierEmail, AGENT_EMAIL
+        from src.supplier_llm import generate_supplier_response
+
+        new_emails = []
+        remaining_outbox = []
+
+        for outbox_email in self.supplier_outbox:
+            # Find the supplier
+            supplier = get_supplier_by_email(outbox_email.to_addr)
+            if not supplier:
+                # Unknown supplier - no response
+                continue
+
+            # Check if response is due (response_delay_days after sending)
+            response_due_day = outbox_email.sent_day + supplier.response_delay_days
+            if self.current_day >= response_due_day:
+                # Get conversation history for this supplier
+                supplier_id = supplier.supplier_id
+                history = self.email_conversations.get(supplier_id, [])
+
+                # Generate supplier response using LLM
+                try:
+                    subject, body = generate_supplier_response(
+                        supplier=supplier,
+                        agent_email=outbox_email,
+                        email_history=history
+                    )
+
+                    # Create response email
+                    response = SupplierEmail(
+                        email_id=self.next_email_id,
+                        from_addr=supplier.email,
+                        to_addr=AGENT_EMAIL,
+                        subject=subject,
+                        body=body,
+                        sent_day=self.current_day,
+                        read=False,
+                        replied_to=outbox_email.email_id
+                    )
+                    self.next_email_id += 1
+
+                    # Add to inbox and conversation history
+                    self.supplier_inbox.append(response)
+                    if supplier_id not in self.email_conversations:
+                        self.email_conversations[supplier_id] = []
+                    self.email_conversations[supplier_id].append(outbox_email)
+                    self.email_conversations[supplier_id].append(response)
+
+                    new_emails.append({
+                        "email_id": response.email_id,
+                        "from": supplier.name,
+                        "subject": response.subject
+                    })
+
+                except Exception as e:
+                    # Log error but don't crash simulation
+                    print(f"    [EMAIL ERROR] Failed to generate response from {supplier.name}: {e}")
+            else:
+                # Response not yet due, keep in outbox
+                remaining_outbox.append(outbox_email)
+
+        self.supplier_outbox = remaining_outbox
+        return new_emails
+
+    def queue_outgoing_email(self, to_addr: str, subject: str, body: str) -> Dict[str, Any]:
+        """
+        Queue an outgoing email to a supplier.
+
+        Args:
+            to_addr: Supplier email address
+            subject: Email subject
+            body: Email body
+
+        Returns:
+            Dict with email details
+        """
+        if not self.email_system_enabled:
+            return {"success": False, "error": "Email system not enabled"}
+
+        from src.suppliers import get_supplier_by_email, SupplierEmail, AGENT_EMAIL
+
+        # Validate supplier exists
+        supplier = get_supplier_by_email(to_addr)
+        if not supplier:
+            return {
+                "success": False,
+                "error": f"Unknown supplier email: {to_addr}"
+            }
+
+        # Create email
+        email = SupplierEmail(
+            email_id=self.next_email_id,
+            from_addr=AGENT_EMAIL,
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            sent_day=self.current_day,
+            read=True  # Agent's own emails are "read"
+        )
+        self.next_email_id += 1
+
+        # Queue for processing
+        self.supplier_outbox.append(email)
+
+        return {
+            "success": True,
+            "email_id": email.email_id,
+            "to": supplier.name,
+            "subject": subject,
+            "response_expected_day": self.current_day + supplier.response_delay_days
+        }
+
+    def get_supplier_inbox(self, unread_only: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get list of emails from suppliers.
+
+        Args:
+            unread_only: If True, only return unread emails
+
+        Returns:
+            List of email summaries
+        """
+        if not self.email_system_enabled:
+            return []
+
+        emails = []
+        for email in self.supplier_inbox:
+            if unread_only and email.read:
+                continue
+            emails.append({
+                "email_id": email.email_id,
+                "from": email.from_addr,
+                "subject": email.subject,
+                "day": email.sent_day,
+                "read": email.read
+            })
+
+        return emails
+
+    def read_supplier_email(self, email_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Read a specific email from the supplier inbox.
+
+        Args:
+            email_id: Email ID to read
+
+        Returns:
+            Full email content or None if not found
+        """
+        if not self.email_system_enabled:
+            return None
+
+        for email in self.supplier_inbox:
+            if email.email_id == email_id:
+                email.read = True
+                return {
+                    "email_id": email.email_id,
+                    "from": email.from_addr,
+                    "to": email.to_addr,
+                    "subject": email.subject,
+                    "body": email.body,
+                    "sent_day": email.sent_day
+                }
+
+        return None
+
+    def process_supplier_payment(
+        self,
+        supplier_email: str,
+        amount: float,
+        products: Dict[str, int],
+        description: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Process payment to supplier and create order.
+
+        Args:
+            supplier_email: Supplier's email address
+            amount: Payment amount
+            products: Dict of product -> quantity
+            description: Payment description
+
+        Returns:
+            Dict with payment/order details
+        """
+        if not self.email_system_enabled:
+            return {"success": False, "error": "Email system not enabled"}
+
+        from src.suppliers import get_supplier_by_email
+        import random
+
+        # Validate supplier
+        supplier = get_supplier_by_email(supplier_email)
+        if not supplier:
+            return {"success": False, "error": f"Unknown supplier: {supplier_email}"}
+
+        # Check balance
+        if self.cash_balance < amount:
+            return {
+                "success": False,
+                "error": f"Insufficient funds. Balance: ${self.cash_balance:.2f}, Required: ${amount:.2f}"
+            }
+
+        # Deduct payment
+        self.cash_balance -= amount
+        self._record_transaction(
+            transaction_type="supplier_payment",
+            product=None,
+            quantity=sum(products.values()),
+            amount=-amount,
+            notes=f"Payment to {supplier.name}: {description}"
+        )
+
+        # Check if supplier will actually deliver (reliability check)
+        will_deliver = random.random() < supplier.reliability
+
+        if will_deliver:
+            # Create pending orders for each product
+            delivery_day = self.current_day + supplier.delivery_days
+            order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+
+            for product, quantity in products.items():
+                if product in PRODUCT_CATALOG:
+                    # Calculate per-unit cost for this order
+                    unit_cost = amount / sum(products.values()) if products else 0
+
+                    order = PendingOrder(
+                        order_id=f"{order_id}-{product}",
+                        product=product,
+                        quantity=quantity,
+                        supplier_cost=unit_cost,
+                        order_day=self.current_day,
+                        delivery_day=delivery_day,
+                        total_cost=unit_cost * quantity
+                    )
+                    self.pending_orders.append(order)
+
+            return {
+                "success": True,
+                "order_id": order_id,
+                "amount_paid": amount,
+                "products": products,
+                "expected_delivery_day": delivery_day,
+                "supplier": supplier.name
+            }
+        else:
+            # Scammer - took money but won't deliver
+            return {
+                "success": True,  # Payment went through
+                "order_id": f"ORD-{uuid.uuid4().hex[:8].upper()}",
+                "amount_paid": amount,
+                "products": products,
+                "expected_delivery_day": self.current_day + supplier.delivery_days,
+                "supplier": supplier.name,
+                # Note: Order won't actually be added to pending_orders
+                # Agent will notice when delivery never arrives
+            }
+
     def get_pending_orders(self) -> List[Dict[str, Any]]:
         """Get list of orders currently in transit."""
         return [
@@ -247,6 +550,59 @@ class VendingEnvironment:
             }
             for order in self.pending_orders
         ]
+
+    def add_output_tokens(self, tokens: int):
+        """
+        Track output tokens used by the agent.
+
+        Args:
+            tokens: Number of output tokens to add
+        """
+        self.accumulated_output_tokens += tokens
+
+    def process_weekly_token_charge(self) -> Dict[str, Any]:
+        """
+        Process weekly token cost charge (VendingBench 2: $100 per million output tokens).
+
+        Called at the end of each week (every 7 days).
+
+        Returns:
+            Dict with charge details
+        """
+        # Only charge once per week
+        if self.current_day - self.last_token_charge_day < 7:
+            return {"charged": False, "reason": "Not yet a full week"}
+
+        # Calculate cost: $100 per million output tokens
+        cost = (self.accumulated_output_tokens / 1_000_000) * self.token_cost_per_million
+
+        if cost > 0:
+            self.cash_balance -= cost
+            self.total_token_costs += cost
+
+            # Record transaction
+            self._record_transaction(
+                transaction_type="token_cost",
+                product=None,
+                quantity=self.accumulated_output_tokens,
+                amount=-cost,
+                notes=f"Weekly token cost: {self.accumulated_output_tokens:,} output tokens @ ${self.token_cost_per_million}/million"
+            )
+
+            print(f"    [TOKEN COST] Week ending Day {self.current_day}: {self.accumulated_output_tokens:,} tokens = ${cost:.2f} | Cash: ${self.cash_balance + cost:.2f} → ${self.cash_balance:.2f}", flush=True)
+
+        # Reset for next week
+        tokens_charged = self.accumulated_output_tokens
+        self.accumulated_output_tokens = 0
+        self.last_token_charge_day = self.current_day
+
+        return {
+            "charged": True,
+            "tokens": tokens_charged,
+            "cost": cost,
+            "day": self.current_day,
+            "new_balance": self.cash_balance
+        }
 
     def _process_overnight_sales(self) -> Dict[str, Any]:
         """
@@ -562,23 +918,22 @@ class VendingEnvironment:
     def calculate_final_metrics(self) -> Dict[str, Any]:
         """Calculate final business metrics.
 
-        Net worth per VendingBench 2.4:
-        - Cash at hand
-        - Cash not emptied from vending machine (in our sim, sales go directly to cash_balance)
-        - Value of unsold products in storage AND machine (at wholesale price)
+        VendingBench 2 scoring: CASH BALANCE ONLY after 365 days.
+        (Inventory value is tracked but not counted toward final score)
         """
-        # Storage inventory value (wholesale price)
+        # Storage inventory value (wholesale price) - for reference only
         storage_value = sum(
             sum(item.supplier_cost * item.quantity for item in items)
             for items in self.storage_inventory.values()
         )
 
-        # Machine inventory value (wholesale price)
+        # Machine inventory value (wholesale price) - for reference only
         machine_value = sum(
             PRODUCT_CATALOG[product]["supplier_cost"] * quantity
             for product, quantity in self.machine_inventory.items()
         )
 
+        # Net worth (for reference, NOT the score)
         final_net_worth = self.cash_balance + storage_value + machine_value
 
         # Revenue and profit calculations
@@ -592,21 +947,31 @@ class VendingEnvironment:
         )
         total_profit = total_revenue - total_costs
 
-        # Days profitable
+        # Days profitable (cash > starting cash)
         days_profitable = sum(
             1 for report in self.daily_reports
             if report.get("cash_balance", 0) > self.config.starting_cash
         )
 
         return {
-            "final_net_worth": final_net_worth,
-            "starting_net_worth": self.starting_net_worth,
-            "starting_cash": self.config.starting_cash,
+            # PRIMARY SCORE (VendingBench 2): Cash balance only
+            "score": self.cash_balance,  # THE OFFICIAL VENDINGBENCH 2 SCORE
             "final_cash_balance": self.cash_balance,
+            "starting_cash": self.config.starting_cash,
+            "cash_gain_loss": self.cash_balance - self.config.starting_cash,
+
+            # Inventory values (for reference, NOT part of score)
             "storage_value": storage_value,
             "machine_value": machine_value,
-            "cash_gain_loss": self.cash_balance - self.config.starting_cash,
+            "final_net_worth": final_net_worth,  # Reference only
+            "starting_net_worth": self.starting_net_worth,
             "profit_loss": final_net_worth - self.starting_net_worth,
+
+            # Token costs (VendingBench 2: $100 per million output tokens)
+            "total_token_costs": self.total_token_costs,
+            "total_output_tokens": self.accumulated_output_tokens,  # Remaining uncharged tokens
+
+            # Other metrics
             "total_revenue": total_revenue,
             "total_costs": total_costs,
             "total_profit": total_profit,

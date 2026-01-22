@@ -197,6 +197,141 @@ def create_all_tools(vending_tools: VendingTools) -> List[ToolDef]:
     return create_direct_tools(vending_tools) + create_physical_tools(vending_tools)
 
 
+def create_email_mode_tools(vending_tools: VendingTools) -> List[ToolDef]:
+    """
+    Create tools for EMAIL MODE (VendingBench 2 supplier negotiation).
+
+    In this mode:
+    - order_inventory is NOT available (must use email negotiation)
+    - Agent uses search_suppliers, send_supplier_email, send_payment
+    """
+
+    # Email/Supplier tools
+    async def search_suppliers(query: str = "") -> str:
+        """Search for wholesale suppliers."""
+        result = vending_tools.search_suppliers(query)
+        return json.dumps(result)
+
+    async def send_supplier_email(to: str, subject: str, body: str) -> str:
+        """Send email to a supplier."""
+        result = vending_tools.send_supplier_email(to, subject, body)
+        return json.dumps(result)
+
+    async def list_supplier_emails(unread_only: bool = False) -> str:
+        """List emails in inbox from suppliers."""
+        result = vending_tools.list_supplier_emails(unread_only)
+        return json.dumps(result)
+
+    async def read_supplier_email(email_id: int) -> str:
+        """Read a specific email from a supplier."""
+        result = vending_tools.read_supplier_email(email_id)
+        return json.dumps(result)
+
+    async def send_payment(to: str, amount: float, products: str, description: str = "") -> str:
+        """Send payment to supplier to place order."""
+        # Parse products JSON string
+        try:
+            products_dict = json.loads(products)
+        except (json.JSONDecodeError, TypeError):
+            return json.dumps({"success": False, "error": f"Invalid products format. Expected JSON dict like {{\"coffee\": 50}}"})
+        result = vending_tools.send_payment(to, amount, products_dict, description)
+        return json.dumps(result)
+
+    # Standard tools (same as direct mode but without order_inventory)
+    async def check_balance() -> str:
+        result = vending_tools.check_balance()
+        return json.dumps(result)
+
+    async def check_storage_inventory() -> str:
+        result = vending_tools.check_storage_inventory()
+        return json.dumps(result)
+
+    async def check_pending_orders() -> str:
+        result = vending_tools.check_pending_orders()
+        return json.dumps(result)
+
+    async def get_machine_inventory() -> str:
+        result = vending_tools.get_machine_inventory()
+        return json.dumps(result)
+
+    async def stock_machine(product: str, quantity: int) -> str:
+        result = vending_tools.stock_machine(product, quantity)
+        return json.dumps(result)
+
+    async def set_price(product: str, price: float) -> str:
+        result = vending_tools.set_price(product, price)
+        return json.dumps(result)
+
+    async def research_market(query: str) -> str:
+        result = vending_tools.research_product(query)
+        return json.dumps(result)
+
+    async def wait_for_next_day() -> str:
+        result = vending_tools.wait_for_next_day()
+        return json.dumps(result)
+
+    async def scratchpad_write(key: str, content: str) -> str:
+        result = vending_tools.scratchpad_write(key, content)
+        return json.dumps(result)
+
+    async def scratchpad_read(key: str) -> str:
+        result = vending_tools.scratchpad_read(key)
+        return json.dumps(result)
+
+    async def scratchpad_list() -> str:
+        result = vending_tools.scratchpad_list()
+        return json.dumps(result)
+
+    return [
+        # EMAIL/SUPPLIER TOOLS (EMAIL MODE ONLY)
+        ToolDef(tool=search_suppliers, name="search_suppliers",
+                description="Search for wholesale suppliers. Returns list of supplier names and emails.",
+                parameters={"query": "(Optional) Search query"}),
+        ToolDef(tool=send_supplier_email, name="send_supplier_email",
+                description="Send email to a supplier to inquire about products/prices or negotiate. Response arrives after wait_for_next_day().",
+                parameters={"to": "Supplier email address", "subject": "Email subject", "body": "Your message"}),
+        ToolDef(tool=list_supplier_emails, name="list_supplier_emails",
+                description="List emails in your inbox from suppliers.",
+                parameters={"unread_only": "(Optional) If true, only show unread emails"}),
+        ToolDef(tool=read_supplier_email, name="read_supplier_email",
+                description="Read a specific email from a supplier.",
+                parameters={"email_id": "Email ID to read (integer)"}),
+        ToolDef(tool=send_payment, name="send_payment",
+                description="Send payment to supplier after negotiating terms via email. This places your order.",
+                parameters={"to": "Supplier email address", "amount": "Total payment amount",
+                           "products": "JSON dict of products e.g. {\"coffee\": 50, \"chips\": 30}",
+                           "description": "(Optional) Order description"}),
+        # STANDARD TOOLS (no order_inventory!)
+        ToolDef(tool=check_balance, name="check_balance",
+                description="Get current cash balance."),
+        ToolDef(tool=check_storage_inventory, name="check_storage_inventory",
+                description="Check inventory in storage warehouse."),
+        ToolDef(tool=check_pending_orders, name="check_pending_orders",
+                description="Check status of orders in transit."),
+        ToolDef(tool=get_machine_inventory, name="get_machine_inventory",
+                description="Get inventory in vending machine (what customers can buy)."),
+        ToolDef(tool=stock_machine, name="stock_machine",
+                description="Move items from storage to vending machine.",
+                parameters={"product": "Product name", "quantity": "Units to move"}),
+        ToolDef(tool=set_price, name="set_price",
+                description="Set retail price for a product.",
+                parameters={"product": "Product name", "price": "New price in dollars"}),
+        ToolDef(tool=research_market, name="research_market",
+                description="Research market information.",
+                parameters={"query": "Search query"}),
+        ToolDef(tool=wait_for_next_day, name="wait_for_next_day",
+                description="End current day and advance to next day. Overnight sales processed, supplier emails arrive."),
+        ToolDef(tool=scratchpad_write, name="scratchpad_write",
+                description="Write notes for future reference.",
+                parameters={"key": "Note name", "content": "Content"}),
+        ToolDef(tool=scratchpad_read, name="scratchpad_read",
+                description="Read a note.",
+                parameters={"key": "Note name"}),
+        ToolDef(tool=scratchpad_list, name="scratchpad_list",
+                description="List all notes."),
+    ]
+
+
 def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
     """
     Create inspect_ai ToolDef objects from VendingTools instance.
@@ -242,7 +377,7 @@ def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
         return json.dumps(result)
 
     async def research_market(query: str) -> str:
-        result = vending_tools.research_market(query)
+        result = vending_tools.research_product(query)
         return json.dumps(result)
 
     async def wait_for_next_day() -> str:
@@ -380,7 +515,8 @@ def vending_baseline(
     simulation_days: int = 3,
     starting_cash: float = 500.0,
     event_complexity: str = "simple",
-    customer_model: str = "anthropic/claude-sonnet-4-5-20241022"
+    customer_model: str = "anthropic/claude-sonnet-4-5-20241022",
+    email_system_enabled: bool = False
 ) -> Task:
     """
     Baseline vending machine task without memory.
@@ -390,6 +526,7 @@ def vending_baseline(
         starting_cash: Starting cash balance
         event_complexity: Event complexity level ("simple", "medium", "full")
         customer_model: Model to use for the agent
+        email_system_enabled: If True, use VendingBench 2 email-based supplier negotiation
 
     Returns:
         inspect_ai Task
@@ -409,45 +546,62 @@ def vending_baseline(
                 "simulation_days": simulation_days,
                 "starting_cash": starting_cash,
                 "event_complexity": event_complexity,
-                "customer_model": customer_model
+                "customer_model": customer_model,
+                "email_system_enabled": email_system_enabled
             }
         )
     ]
 
     # Extract short model name for task name (e.g., "openai/gpt-4o" -> "gpt-4o")
     model_short = customer_model.split("/")[-1] if "/" in customer_model else customer_model
+    mode_suffix = "_email" if email_system_enabled else ""
 
     return Task(
         dataset=dataset,
-        solver=[baseline_agent(config)],
+        solver=[baseline_agent(config, email_system_enabled=email_system_enabled)],
         scorer=[profit_scorer(), survival_scorer()],
-        name=f"vending_{model_short}_{simulation_days}d",
+        name=f"vending_{model_short}_{simulation_days}d{mode_suffix}",
         model=customer_model  # Pass the model to inspect_ai
     )
 
 
 @solver
-def baseline_agent(config: SimulationConfig) -> Solver:
+def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False) -> Solver:
     """
     Baseline agent using inspect_ai's native model abstraction.
 
     Uses get_model().generate() and execute_tools() for multi-provider support.
+
+    Args:
+        config: Simulation configuration
+        email_system_enabled: If True, use email-based supplier negotiation
     """
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        # Initialize simulation
-        env = VendingEnvironment(config)
+        # Initialize simulation with email system flag
+        env = VendingEnvironment(config, email_system_enabled=email_system_enabled)
         vending_tools = VendingTools(env)
 
-        # Create inspect_ai tools from VendingTools
-        tools = create_vending_tools(vending_tools)
+        # Create inspect_ai tools based on mode
+        if email_system_enabled:
+            tools = create_email_mode_tools(vending_tools)
+        else:
+            tools = create_vending_tools(vending_tools)
 
-        # Build system prompt
-        system_prompt = build_system_prompt(
-            tools=vending_tools,
-            starting_cash=config.starting_cash,
-            daily_fee=config.daily_fee,
-            simulation_days=config.simulation_days
-        )
+        # Build system prompt based on mode
+        if email_system_enabled:
+            from src.prompts import build_email_mode_system_prompt
+            system_prompt = build_email_mode_system_prompt(
+                starting_cash=config.starting_cash,
+                daily_fee=config.daily_fee,
+                simulation_days=config.simulation_days
+            )
+        else:
+            system_prompt = build_system_prompt(
+                tools=vending_tools,
+                starting_cash=config.starting_cash,
+                daily_fee=config.daily_fee,
+                simulation_days=config.simulation_days
+            )
 
         # Track all tool calls and model outputs for logging
         all_tool_calls = []
@@ -461,9 +615,11 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         model = get_model()
 
         # Progress logging - start
+        mode_str = "EMAIL MODE (supplier negotiation)" if email_system_enabled else "DIRECT MODE"
         print(f"\n{'='*60}")
         print(f"VENDING SIMULATION STARTED")
         print(f"  Model: {model.name}")
+        print(f"  Mode: {mode_str}")
         print(f"  Days: {config.simulation_days} | Starting Cash: ${config.starting_cash:.2f}")
         print(f"  Machine Capacity: 12 slots (6 small + 6 large)")
         print(f"{'='*60}")
@@ -531,6 +687,10 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                 total_usage["output_tokens"] += model_output_record["usage"]["output_tokens"] or 0
                 total_usage["reasoning_tokens"] += model_output_record["usage"]["reasoning_tokens"] or 0
                 total_usage["total_tokens"] += model_output_record["usage"]["total_tokens"] or 0
+
+                # Track output tokens for weekly cost calculation (VendingBench 2: $100/million)
+                output_tokens = model_output_record["usage"]["output_tokens"] or 0
+                env.add_output_tokens(output_tokens)
 
             # Capture reasoning content if available (extended thinking)
             if hasattr(output.message, 'reasoning') and output.message.reasoning:
@@ -608,6 +768,10 @@ def baseline_agent(config: SimulationConfig) -> Solver:
                                             "total_tool_calls": len(all_tool_calls)
                                         })
 
+                                        # Weekly token cost charge (VendingBench 2: $100 per million output tokens)
+                                        if isinstance(new_day, int) and new_day % 7 == 0:
+                                            token_charge = env.process_weekly_token_charge()
+
                                         if result.get("is_simulation_complete"):
                                             env.is_complete = True
                                             print(f"  Simulation complete at Day {new_day}", flush=True)
@@ -651,7 +815,9 @@ def baseline_agent(config: SimulationConfig) -> Solver:
         print(f"    Output: {total_usage['output_tokens']:,}")
         if total_usage['reasoning_tokens'] > 0:
             print(f"    Reasoning: {total_usage['reasoning_tokens']:,}")
-        print(f"    Total:  {total_usage['total_tokens']:,}")
+        # Calculate total from components (total_tokens from API can be unreliable)
+        calculated_total = total_usage['input_tokens'] + total_usage['output_tokens'] + total_usage['reasoning_tokens']
+        print(f"    Total:  {calculated_total:,}")
         print(f"{'='*60}\n")
 
         # Log to transcript
@@ -675,7 +841,8 @@ def baseline_agent(config: SimulationConfig) -> Solver:
             "total_usage": total_usage,  # Aggregated token usage
             "memory_stats": memory_stats,
             "agent_type": "baseline",
-            "model_name": model.name
+            "model_name": model.name,
+            "email_system_enabled": email_system_enabled
         }
 
         # Add completion message
@@ -981,6 +1148,10 @@ def subagent_agent(
                 total_usage["reasoning_tokens"] += model_output_record["usage"]["reasoning_tokens"] or 0
                 total_usage["total_tokens"] += model_output_record["usage"]["total_tokens"] or 0
 
+                # Track output tokens for weekly cost calculation (VendingBench 2: $100/million)
+                output_tokens = model_output_record["usage"]["output_tokens"] or 0
+                env.add_output_tokens(output_tokens)
+
             if hasattr(output.message, 'reasoning') and output.message.reasoning:
                 model_output_record["reasoning"] = output.message.reasoning
 
@@ -1087,6 +1258,10 @@ def subagent_agent(
                                             display_counter("Daily Revenue", f"${revenue:.2f}")
                                             display_counter("SubAgent Calls", str(subagent_call_count))
                                             display_counter("Total Tools", str(len(all_tool_calls)))
+
+                                            # Weekly token cost charge (VendingBench 2: $100 per million output tokens)
+                                            if new_day % 7 == 0:
+                                                token_charge = env.process_weekly_token_charge()
 
                                         # Log to transcript
                                         transcript().info({
