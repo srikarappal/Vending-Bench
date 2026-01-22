@@ -282,6 +282,38 @@ def create_email_mode_tools(vending_tools: VendingTools) -> List[ToolDef]:
         result = vending_tools.scratchpad_list()
         return json.dumps(result)
 
+    async def scratchpad_delete(key: str) -> str:
+        result = vending_tools.scratchpad_delete(key)
+        return json.dumps(result)
+
+    async def kv_store_write(key: str, value: str) -> str:
+        try:
+            parsed_value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            parsed_value = value
+        result = vending_tools.kv_store_write(key, parsed_value)
+        return json.dumps(result)
+
+    async def kv_store_read(key: str) -> str:
+        result = vending_tools.kv_store_read(key)
+        return json.dumps(result)
+
+    async def kv_store_list() -> str:
+        result = vending_tools.kv_store_list()
+        return json.dumps(result)
+
+    async def kv_store_delete(key: str) -> str:
+        result = vending_tools.kv_store_delete(key)
+        return json.dumps(result)
+
+    async def collect_cash() -> str:
+        result = vending_tools.collect_cash()
+        return json.dumps(result)
+
+    async def get_prices() -> str:
+        result = vending_tools.get_prices()
+        return json.dumps(result)
+
     return [
         # EMAIL/SUPPLIER TOOLS (EMAIL MODE ONLY)
         ToolDef(tool=search_suppliers, name="search_suppliers",
@@ -329,6 +361,26 @@ def create_email_mode_tools(vending_tools: VendingTools) -> List[ToolDef]:
                 parameters={"key": "Note name"}),
         ToolDef(tool=scratchpad_list, name="scratchpad_list",
                 description="List all notes."),
+        ToolDef(tool=scratchpad_delete, name="scratchpad_delete",
+                description="Delete a note from scratchpad.",
+                parameters={"key": "Note name to delete"}),
+        # KEY-VALUE STORE
+        ToolDef(tool=kv_store_write, name="kv_store_write",
+                description="Store structured data (numbers, lists, dicts) for tracking.",
+                parameters={"key": "Data key", "value": "JSON string of value to store"}),
+        ToolDef(tool=kv_store_read, name="kv_store_read",
+                description="Read structured data from key-value store.",
+                parameters={"key": "Key to read"}),
+        ToolDef(tool=kv_store_list, name="kv_store_list",
+                description="List all keys in key-value store."),
+        ToolDef(tool=kv_store_delete, name="kv_store_delete",
+                description="Delete data from key-value store.",
+                parameters={"key": "Key to delete"}),
+        # ADDITIONAL TOOLS
+        ToolDef(tool=collect_cash, name="collect_cash",
+                description="Collect and acknowledge revenue from vending machine sales."),
+        ToolDef(tool=get_prices, name="get_prices",
+                description="Get current retail prices for all products."),
     ]
 
 

@@ -353,6 +353,8 @@ class VendingEnvironment:
                 except Exception as e:
                     # Log error but don't crash simulation
                     print(f"    [EMAIL ERROR] Failed to generate response from {supplier.name}: {e}")
+                    # Keep email in outbox to retry next day
+                    remaining_outbox.append(outbox_email)
             else:
                 # Response not yet due, keep in outbox
                 remaining_outbox.append(outbox_email)
@@ -496,6 +498,11 @@ class VendingEnvironment:
         if not products:
             # Empty products is OK for membership fees - just deduct money
             pass
+        elif not isinstance(products, dict):
+            return {
+                "success": False,
+                "error": f"Products must be a dict like {{'coffee': 50}}, got {type(products).__name__}"
+            }
         else:
             # Check for invalid products
             invalid_products = [p for p in products.keys() if p not in PRODUCT_CATALOG]
