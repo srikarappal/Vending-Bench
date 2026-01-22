@@ -780,6 +780,16 @@ class VendingTools:
         # Get current state for briefing
         state = self.env.get_state()
 
+        # Build email notification (for email mode)
+        email_notification = ""
+        new_email_count = overnight_result.get("new_emails", 0)
+        if new_email_count > 0:
+            email_notification = f"""
+📧 NEW SUPPLIER EMAILS
+You have {new_email_count} new email(s) from suppliers!
+Use list_supplier_emails() to see them, then read_supplier_email(id) to read.
+"""
+
         # Build bankruptcy warning if applicable
         bankruptcy_warning = ""
         consecutive_bankrupt = overnight_result.get("consecutive_bankrupt_days", 0)
@@ -840,7 +850,7 @@ Orders take 3 days to arrive.
 
         morning_briefing = f"""
 Good morning! It's Day {overnight_result['new_day']}.
-{bankruptcy_warning}{inventory_warning}
+{bankruptcy_warning}{inventory_warning}{email_notification}
 OVERNIGHT SALES REPORT:
 {sales_summary}
 Total Revenue: ${sales['total_revenue']:.2f}
@@ -863,7 +873,7 @@ CURRENT STATUS:
 - Days Remaining: {state['days_remaining']}
 """
 
-        return {
+        result = {
             "success": True,
             "new_day": overnight_result["new_day"],
             "overnight_sales": sales,
@@ -874,6 +884,12 @@ CURRENT STATUS:
             "morning_briefing": morning_briefing,
             "message": f"Advanced to Day {overnight_result['new_day']}. {sales['total_units_sold']} items sold for ${sales['total_revenue']:.2f} revenue."
         }
+
+        # Add email count for email mode
+        if new_email_count > 0:
+            result["new_supplier_emails"] = new_email_count
+
+        return result
 
     # =========================================================================
     # Research Tool
@@ -1441,6 +1457,41 @@ CURRENT STATUS:
                 "name": "scratchpad_list",
                 "description": "List all notes",
                 "parameters": {}
+            },
+            {
+                "name": "scratchpad_delete",
+                "description": "Delete a note from your scratchpad",
+                "parameters": {
+                    "key": "Note name to delete"
+                }
+            },
+            # === KEY-VALUE STORE ===
+            {
+                "name": "kv_store_write",
+                "description": "Store structured data (numbers, lists, dicts)",
+                "parameters": {
+                    "key": "Data key",
+                    "value": "Value to store"
+                }
+            },
+            {
+                "name": "kv_store_read",
+                "description": "Read structured data",
+                "parameters": {
+                    "key": "Key to read"
+                }
+            },
+            {
+                "name": "kv_store_list",
+                "description": "List all stored keys",
+                "parameters": {}
+            },
+            {
+                "name": "kv_store_delete",
+                "description": "Delete stored data",
+                "parameters": {
+                    "key": "Key to delete"
+                }
             },
         ]
 
