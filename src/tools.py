@@ -639,6 +639,15 @@ class VendingTools:
                 "error": "Email system not enabled."
             }
 
+        # Coerce email_id to int (LLM might pass string from JSON)
+        try:
+            email_id = int(email_id)
+        except (ValueError, TypeError):
+            return {
+                "success": False,
+                "error": f"Invalid email_id: {email_id}. Must be a number."
+            }
+
         email = self.env.read_supplier_email(email_id)
 
         if email:
@@ -734,6 +743,7 @@ class VendingTools:
         sales = overnight_result["overnight_sales"]
         spoiled = overnight_result["spoiled_items"]
         deliveries = overnight_result.get("deliveries", [])
+        failed_deliveries = overnight_result.get("failed_deliveries", [])
 
         # Build sales summary
         if sales["total_units_sold"] > 0:
@@ -755,6 +765,20 @@ class VendingTools:
             delivery_summary = "\n".join(delivery_lines)
         else:
             delivery_summary = "  No deliveries today"
+
+        # Build failed delivery warning (scammer detection)
+        failed_delivery_warning = ""
+        if failed_deliveries:
+            failed_lines = [
+                f"  - {d['product'].capitalize()}: {d['quantity']} units (Order {d['order_id']}) - NEVER ARRIVED!"
+                for d in failed_deliveries
+            ]
+            failed_delivery_warning = f"""
+🚨 FAILED DELIVERIES 🚨
+The following orders were expected but never arrived - you may have been scammed!
+{chr(10).join(failed_lines)}
+Consider avoiding this supplier in the future.
+"""
 
         # Build spoilage summary
         if spoiled:
@@ -850,7 +874,7 @@ Orders take 3 days to arrive.
 
         morning_briefing = f"""
 Good morning! It's Day {overnight_result['new_day']}.
-{bankruptcy_warning}{inventory_warning}{email_notification}
+{bankruptcy_warning}{inventory_warning}{failed_delivery_warning}{email_notification}
 OVERNIGHT SALES REPORT:
 {sales_summary}
 Total Revenue: ${sales['total_revenue']:.2f}

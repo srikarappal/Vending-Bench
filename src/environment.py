@@ -53,6 +53,7 @@ class PendingOrder:
     order_day: int
     delivery_day: int  # Day when order will arrive
     total_cost: float
+    will_deliver: bool = True  # False for scammer orders (appear in list but never arrive)
 
 
 class VendingEnvironment:
@@ -191,7 +192,7 @@ class VendingEnvironment:
         self.current_day += 1
 
         # 3. Process deliveries (orders arriving today)
-        deliveries = self._process_deliveries()
+        deliveries, failed_deliveries = self._process_deliveries()
 
         # 4. Charge daily operating fee and check bankruptcy
         is_bankrupt = self._charge_daily_fee()
@@ -216,6 +217,7 @@ class VendingEnvironment:
         result = {
             "overnight_sales": overnight_sales,
             "deliveries": deliveries,
+            "failed_deliveries": failed_deliveries,
             "spoiled_items": spoiled,
             "daily_fee_charged": self.config.daily_fee,
             "new_day": self.current_day,
@@ -230,42 +232,57 @@ class VendingEnvironment:
 
         return result
 
-    def _process_deliveries(self) -> List[Dict[str, Any]]:
+    def _process_deliveries(self) -> tuple:
         """
         Process orders that are scheduled for delivery today.
 
         Returns:
-            List of delivered orders
+            Tuple of (delivered_orders, failed_orders)
+            - delivered_orders: Orders that arrived successfully
+            - failed_orders: Orders that failed (scammer didn't deliver)
         """
         delivered = []
+        failed = []
         remaining_orders = []
 
         for order in self.pending_orders:
             if order.delivery_day <= self.current_day:
-                # Order has arrived - add to storage
-                expiration_day = self.current_day + PRODUCT_CATALOG[order.product]["spoilage_days"]
-                new_item = InventoryItem(
-                    product=order.product,
-                    quantity=order.quantity,
-                    purchase_date=self.current_day,
-                    supplier_cost=order.supplier_cost,
-                    expiration_day=expiration_day
-                )
-                self.storage_inventory[order.product].append(new_item)
+                # Check if this order will actually deliver
+                if order.will_deliver:
+                    # Order has arrived - add to storage
+                    expiration_day = self.current_day + PRODUCT_CATALOG[order.product]["spoilage_days"]
+                    new_item = InventoryItem(
+                        product=order.product,
+                        quantity=order.quantity,
+                        purchase_date=self.current_day,
+                        supplier_cost=order.supplier_cost,
+                        expiration_day=expiration_day
+                    )
+                    self.storage_inventory[order.product].append(new_item)
 
-                delivered.append({
-                    "order_id": order.order_id,
-                    "product": order.product,
-                    "quantity": order.quantity,
-                    "ordered_day": order.order_day,
-                    "delivered_day": self.current_day
-                })
+                    delivered.append({
+                        "order_id": order.order_id,
+                        "product": order.product,
+                        "quantity": order.quantity,
+                        "ordered_day": order.order_day,
+                        "delivered_day": self.current_day
+                    })
+                else:
+                    # Scammer order - expected delivery day passed but nothing arrived
+                    failed.append({
+                        "order_id": order.order_id,
+                        "product": order.product,
+                        "quantity": order.quantity,
+                        "ordered_day": order.order_day,
+                        "expected_delivery_day": order.delivery_day,
+                        "status": "FAILED - Order never arrived (possible scam)"
+                    })
             else:
                 # Order still in transit
                 remaining_orders.append(order)
 
         self.pending_orders = remaining_orders
-        return delivered
+        return delivered, failed
 
     def _process_supplier_emails(self) -> List[Dict[str, Any]]:
         """
@@ -475,6 +492,39 @@ class VendingEnvironment:
         if not supplier:
             return {"success": False, "error": f"Unknown supplier: {supplier_email}"}
 
+        # Validate products dict
+        if not products:
+            # Empty products is OK for membership fees - just deduct money
+            pass
+        else:
+            # Check for invalid products
+            invalid_products = [p for p in products.keys() if p not in PRODUCT_CATALOG]
+            if invalid_products:
+                return {
+                    "success": False,
+                    "error": f"Invalid products: {invalid_products}. Valid products: {list(PRODUCT_CATALOG.keys())}"
+                }
+
+            # Check for invalid quantities
+            for product, quantity in products.items():
+                if not isinstance(quantity, (int, float)) or quantity < 0:
+                    return {
+                        "success": False,
+                        "error": f"Invalid quantity for {product}: {quantity}. Must be a non-negative number."
+                    }
+
+            # Check total quantity is positive if products specified
+            total_quantity = sum(products.values())
+            if total_quantity <= 0:
+                return {
+                    "success": False,
+                    "error": "Total quantity must be positive when ordering products."
+                }
+
+        # Validate amount
+        if amount <= 0:
+            return {"success": False, "error": "Payment amount must be positive."}
+
         # Check balance
         if self.cash_balance < amount:
             return {
@@ -487,55 +537,56 @@ class VendingEnvironment:
         self._record_transaction(
             transaction_type="supplier_payment",
             product=None,
-            quantity=sum(products.values()),
+            quantity=sum(products.values()) if products else 0,
             amount=-amount,
             notes=f"Payment to {supplier.name}: {description}"
         )
 
+        # If no products (e.g., membership fee), just return success
+        if not products or sum(products.values()) == 0:
+            return {
+                "success": True,
+                "order_id": None,
+                "amount_paid": amount,
+                "products": products,
+                "expected_delivery_day": None,
+                "supplier": supplier.name,
+                "message": "Payment processed (no products ordered)"
+            }
+
         # Check if supplier will actually deliver (reliability check)
         will_deliver = random.random() < supplier.reliability
 
-        if will_deliver:
-            # Create pending orders for each product
-            delivery_day = self.current_day + supplier.delivery_days
-            order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+        # Create pending orders for each product (even for scammers - they just won't deliver)
+        delivery_day = self.current_day + supplier.delivery_days
+        order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+        total_quantity = sum(products.values())
 
-            for product, quantity in products.items():
-                if product in PRODUCT_CATALOG:
-                    # Calculate per-unit cost for this order
-                    unit_cost = amount / sum(products.values()) if products else 0
+        for product, quantity in products.items():
+            if quantity > 0:  # Only create orders for positive quantities
+                # Calculate per-unit cost for this order
+                unit_cost = amount / total_quantity
 
-                    order = PendingOrder(
-                        order_id=f"{order_id}-{product}",
-                        product=product,
-                        quantity=quantity,
-                        supplier_cost=unit_cost,
-                        order_day=self.current_day,
-                        delivery_day=delivery_day,
-                        total_cost=unit_cost * quantity
-                    )
-                    self.pending_orders.append(order)
+                order = PendingOrder(
+                    order_id=f"{order_id}-{product}",
+                    product=product,
+                    quantity=int(quantity),  # Ensure integer
+                    supplier_cost=unit_cost,
+                    order_day=self.current_day,
+                    delivery_day=delivery_day,
+                    total_cost=unit_cost * quantity,
+                    will_deliver=will_deliver  # Scammer orders have False
+                )
+                self.pending_orders.append(order)
 
-            return {
-                "success": True,
-                "order_id": order_id,
-                "amount_paid": amount,
-                "products": products,
-                "expected_delivery_day": delivery_day,
-                "supplier": supplier.name
-            }
-        else:
-            # Scammer - took money but won't deliver
-            return {
-                "success": True,  # Payment went through
-                "order_id": f"ORD-{uuid.uuid4().hex[:8].upper()}",
-                "amount_paid": amount,
-                "products": products,
-                "expected_delivery_day": self.current_day + supplier.delivery_days,
-                "supplier": supplier.name,
-                # Note: Order won't actually be added to pending_orders
-                # Agent will notice when delivery never arrives
-            }
+        return {
+            "success": True,
+            "order_id": order_id,
+            "amount_paid": amount,
+            "products": products,
+            "expected_delivery_day": delivery_day,
+            "supplier": supplier.name
+        }
 
     def get_pending_orders(self) -> List[Dict[str, Any]]:
         """Get list of orders currently in transit."""
