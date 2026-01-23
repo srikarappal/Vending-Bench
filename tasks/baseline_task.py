@@ -825,77 +825,79 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
                         "batch_latency_ms": round(tool_exec_latency_ms, 2)  # Total batch latency
                     })
 
+                    # Special handling for wait_for_next_day (INSIDE for loop - checks each tool call)
+                    if tc.function == "wait_for_next_day":
+                        # Record overnight processing latency (includes supplier email generation)
+                        overnight_latency_record = {
+                            "day": env.current_day,
+                            "latency_ms": round(tool_exec_latency_ms, 2),
+                            "emails_generated": 0  # Will be updated below if available
+                        }
+                        latency_metrics["overnight_processing"].append(overnight_latency_record)
+                        latency_metrics["total_overnight_time_ms"] += tool_exec_latency_ms
+
+                        # Find the specific tool message matching this tool call
+                        for tm in tool_messages:
+                            # Match by tool_call_id to get the correct result
+                            if hasattr(tm, 'tool_call_id') and tm.tool_call_id == tc.id and hasattr(tm, 'content'):
+                                try:
+                                    result = json.loads(tm.content) if isinstance(tm.content, str) else tm.content
+                                    if isinstance(result, dict) and "new_day" in result:
+                                        sales = result.get("overnight_sales", {})
+                                        new_day = result.get("new_day", "?")
+                                        cash = result.get("cash_balance", 0)
+                                        revenue = sales.get("total_revenue", 0)
+                                        units = sales.get("total_units_sold", 0)
+
+                                        # Update overnight latency record with email count
+                                        new_emails_count = result.get("new_emails", 0)
+                                        overnight_latency_record["emails_generated"] = new_emails_count
+
+                                        if debug:
+                                            print(f"    [DEBUG] Overnight: {tool_exec_latency_ms:.0f}ms | emails:{new_emails_count}", flush=True)
+
+                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools", flush=True)
+
+                                        # Update display counters
+                                        if isinstance(new_day, int):
+                                            cash_change = cash - config.starting_cash
+                                            cash_change_str = f"+${cash_change:.2f}" if cash_change >= 0 else f"-${abs(cash_change):.2f}"
+                                            total_calls = len(all_tool_calls)
+                                            avg_calls = total_calls / new_day if new_day > 0 else 0
+                                            display_counter("Day", f"{new_day}/{config.simulation_days}")
+                                            display_counter("Cash Balance", f"${cash:.2f}")
+                                            display_counter("Cash +/-", cash_change_str)
+                                            display_counter("Daily Revenue", f"${revenue:.2f}")
+                                            display_counter("Units Sold", str(units))
+                                            display_counter("Total Calls", str(total_calls))
+                                            display_counter("Avg Calls/Day", f"{avg_calls:.1f}")
+
+                                        # Log to transcript
+                                        transcript().info({
+                                            "event": "day_complete",
+                                            "day": new_day,
+                                            "cash_balance": cash,
+                                            "revenue": revenue,
+                                            "units_sold": units,
+                                            "total_tool_calls": len(all_tool_calls)
+                                        })
+
+                                        # Weekly token cost charge (VendingBench 2: $100 per million output tokens)
+                                        if isinstance(new_day, int) and new_day % 7 == 0:
+                                            token_charge = env.process_weekly_token_charge()
+
+                                        if result.get("is_simulation_complete"):
+                                            env.is_complete = True
+                                            print(f"  Simulation complete at Day {new_day}", flush=True)
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                                break  # Found the matching tool message, stop searching
+
+                # Debug print for tool batch (outside for loop)
                 if debug:
                     tool_names = [tc.function for tc in output.message.tool_calls]
                     print(f"    [DEBUG] Tools: {tool_names} | batch:{tool_exec_latency_ms:.0f}ms", flush=True)
 
-                # Special handling for wait_for_next_day (OUTSIDE debug block - always runs)
-                if tc.function == "wait_for_next_day":
-                    # Record overnight processing latency (includes supplier email generation)
-                    overnight_latency_record = {
-                        "day": env.current_day,
-                        "latency_ms": round(tool_exec_latency_ms, 2),
-                        "emails_generated": 0  # Will be updated below if available
-                    }
-                    latency_metrics["overnight_processing"].append(overnight_latency_record)
-                    latency_metrics["total_overnight_time_ms"] += tool_exec_latency_ms
-
-                    # Find the specific tool message matching this tool call
-                    for tm in tool_messages:
-                        # Match by tool_call_id to get the correct result
-                        if hasattr(tm, 'tool_call_id') and tm.tool_call_id == tc.id and hasattr(tm, 'content'):
-                            try:
-                                result = json.loads(tm.content) if isinstance(tm.content, str) else tm.content
-                                if isinstance(result, dict) and "new_day" in result:
-                                    sales = result.get("overnight_sales", {})
-                                    new_day = result.get("new_day", "?")
-                                    cash = result.get("cash_balance", 0)
-                                    revenue = sales.get("total_revenue", 0)
-                                    units = sales.get("total_units_sold", 0)
-
-                                    # Update overnight latency record with email count
-                                    new_emails_count = result.get("new_emails", 0)
-                                    overnight_latency_record["emails_generated"] = new_emails_count
-
-                                    if debug:
-                                        print(f"    [DEBUG] Overnight: {tool_exec_latency_ms:.0f}ms | emails:{new_emails_count}", flush=True)
-
-                                    print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools")
-
-                                    # Update display counters
-                                    if isinstance(new_day, int):
-                                        cash_change = cash - config.starting_cash
-                                        cash_change_str = f"+${cash_change:.2f}" if cash_change >= 0 else f"-${abs(cash_change):.2f}"
-                                        total_calls = len(all_tool_calls)
-                                        avg_calls = total_calls / new_day if new_day > 0 else 0
-                                        display_counter("Day", f"{new_day}/{config.simulation_days}")
-                                        display_counter("Cash Balance", f"${cash:.2f}")
-                                        display_counter("Cash +/-", cash_change_str)
-                                        display_counter("Daily Revenue", f"${revenue:.2f}")
-                                        display_counter("Units Sold", str(units))
-                                        display_counter("Total Calls", str(total_calls))
-                                        display_counter("Avg Calls/Day", f"{avg_calls:.1f}")
-
-                                    # Log to transcript
-                                    transcript().info({
-                                        "event": "day_complete",
-                                        "day": new_day,
-                                        "cash_balance": cash,
-                                        "revenue": revenue,
-                                        "units_sold": units,
-                                        "total_tool_calls": len(all_tool_calls)
-                                    })
-
-                                    # Weekly token cost charge (VendingBench 2: $100 per million output tokens)
-                                    if isinstance(new_day, int) and new_day % 7 == 0:
-                                        token_charge = env.process_weekly_token_charge()
-
-                                    if result.get("is_simulation_complete"):
-                                        env.is_complete = True
-                                        print(f"  Simulation complete at Day {new_day}", flush=True)
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                            break  # Found the matching tool message, stop searching
             else:
                 # No tool calls - model might be done or need prompting
                 if not env.is_complete:
