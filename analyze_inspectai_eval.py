@@ -102,11 +102,34 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     architecture = sample.metadata.get("architecture", "baseline")
     print(f"Architecture: {architecture}")
 
+    # Detect ordering mode (email vs direct) based on tool calls present
+    # We'll refine this after extracting tool calls
+    email_mode = False  # Will be set after tool call extraction
+
     # If no tool_calls in simulation_results, extract from messages
     # This handles subagent mode where basic_agent doesn't populate our format
     if not tool_calls and hasattr(sample, 'messages') and sample.messages:
         print("(Extracting tool calls from raw messages...)")
         tool_calls = extract_tool_calls_from_messages(sample.messages)
+
+    # Detect ordering mode based on tool calls
+    email_tools = ["send_supplier_email", "list_supplier_emails", "read_supplier_email",
+                   "search_suppliers", "send_payment"]
+    direct_tools = ["order_inventory"]
+
+    email_tool_calls = [tc for tc in tool_calls if tc.get("tool") in email_tools]
+    direct_tool_calls = [tc for tc in tool_calls if tc.get("tool") in direct_tools]
+
+    if email_tool_calls:
+        email_mode = True
+        print(f"Ordering Mode: EMAIL (supplier negotiation) - {len(email_tool_calls)} email-related calls")
+    elif direct_tool_calls:
+        email_mode = False
+        print(f"Ordering Mode: DIRECT (fixed prices) - {len(direct_tool_calls)} order calls")
+    else:
+        # Neither found - likely used starting stock only
+        email_mode = False
+        print("Ordering Mode: UNKNOWN (no orders detected)")
 
     # === EXTRACT CASH BALANCE ===
     starting_cash = final_metrics.get('starting_cash', 500.0)
@@ -286,6 +309,34 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     if not order_calls and not payment_calls:
         print("  No inventory orders made")
 
+    # === EMAIL ACTIVITY (email mode only) ===
+    if email_mode:
+        print("\n=== EMAIL ACTIVITY ===")
+        email_sent = [tc for tc in tool_calls if tc.get("tool") == "send_supplier_email"]
+        email_read = [tc for tc in tool_calls if tc.get("tool") == "read_supplier_email"]
+        email_list = [tc for tc in tool_calls if tc.get("tool") == "list_supplier_emails"]
+        supplier_search = [tc for tc in tool_calls if tc.get("tool") == "search_suppliers"]
+
+        print(f"  Supplier searches:    {len(supplier_search)}")
+        print(f"  Emails sent:          {len(email_sent)}")
+        print(f"  Emails read:          {len(email_read)}")
+        print(f"  Inbox checks:         {len(email_list)}")
+        print(f"  Payments made:        {len(payment_calls)}")
+
+        # Show suppliers contacted
+        suppliers_contacted = set()
+        for tc in email_sent:
+            to_addr = tc.get("input", {}).get("to", "unknown")
+            suppliers_contacted.add(to_addr)
+        for tc in payment_calls:
+            to_addr = tc.get("input", {}).get("to", "unknown")
+            suppliers_contacted.add(to_addr)
+
+        if suppliers_contacted:
+            print(f"\n  Suppliers contacted: {len(suppliers_contacted)}")
+            for supplier in sorted(suppliers_contacted):
+                print(f"    - {supplier}")
+
     # === ZERO REVENUE ANALYSIS ===
     print("\n=== ZERO REVENUE ANALYSIS ===")
     zero_revenue_days = []
@@ -322,10 +373,11 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     # === AGENT ACTIVITY ANALYSIS ===
     print("\n=== AGENT ACTIVITY ANALYSIS ===")
 
-    # Analyze subagent activity by day ranges
+    # Analyze activity by day ranges
     days_simulated = final_metrics.get("days_simulated", 200)
     subagent_by_period = defaultdict(int)
     orders_by_period = defaultdict(int)
+    email_by_period = defaultdict(int)
 
     for tc in tool_calls:
         day = tc.get("day", 0)
@@ -334,13 +386,23 @@ def analyze_eval(eval_path: str, verbose: bool = False):
             subagent_by_period[period] += 1
         if tc.get("tool") in ["order_inventory", "send_payment"]:
             orders_by_period[period] += 1
+        if tc.get("tool") in ["send_supplier_email", "read_supplier_email", "list_supplier_emails"]:
+            email_by_period[period] += 1
 
-    print(f"{'Period':<15} {'Subagent Calls':>15} {'Orders':>10}")
-    print("-" * 45)
-    for period in [0, 50, 100, 150]:
-        period_end = min(period + 49, days_simulated - 1)
-        if period < days_simulated:
-            print(f"Days {period:3d}-{period_end:<3d}     {subagent_by_period.get(period, 0):>15} {orders_by_period.get(period, 0):>10}")
+    if email_mode:
+        print(f"{'Period':<15} {'Email Activity':>15} {'Orders':>10}")
+        print("-" * 45)
+        for period in [0, 50, 100, 150]:
+            period_end = min(period + 49, days_simulated - 1)
+            if period < days_simulated:
+                print(f"Days {period:3d}-{period_end:<3d}     {email_by_period.get(period, 0):>15} {orders_by_period.get(period, 0):>10}")
+    else:
+        print(f"{'Period':<15} {'Subagent Calls':>15} {'Orders':>10}")
+        print("-" * 45)
+        for period in [0, 50, 100, 150]:
+            period_end = min(period + 49, days_simulated - 1)
+            if period < days_simulated:
+                print(f"Days {period:3d}-{period_end:<3d}     {subagent_by_period.get(period, 0):>15} {orders_by_period.get(period, 0):>10}")
 
     # === INVENTORY FLOW ANALYSIS ===
     print("\n=== INVENTORY FLOW ANALYSIS ===")
@@ -368,10 +430,17 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     print(f"Average daily revenue: ${avg_daily_revenue:.2f}")
     print(f"Revenue per tool call: ${total_daily_revenue / len(tool_calls):.2f}" if tool_calls else "N/A")
 
-    # Activity ratio
-    total_subagent = tool_counts.get("run_sub_agent", 0) + tool_counts.get("chat_with_sub_agent", 0)
-    activity_ratio = total_subagent / days_simulated if days_simulated > 0 else 0
-    print(f"Subagent calls per day: {activity_ratio:.2f}")
+    # Activity ratio (mode-aware)
+    if email_mode:
+        total_email_activity = (tool_counts.get("send_supplier_email", 0) +
+                                tool_counts.get("read_supplier_email", 0) +
+                                tool_counts.get("send_payment", 0))
+        activity_ratio = total_email_activity / days_simulated if days_simulated > 0 else 0
+        print(f"Email actions per day: {activity_ratio:.2f}")
+    else:
+        total_subagent = tool_counts.get("run_sub_agent", 0) + tool_counts.get("chat_with_sub_agent", 0)
+        activity_ratio = total_subagent / days_simulated if days_simulated > 0 else 0
+        print(f"Subagent calls per day: {activity_ratio:.2f}")
 
     # Check for anomalies
     print("\n=== POTENTIAL ISSUES ===")
@@ -394,9 +463,20 @@ def analyze_eval(eval_path: str, verbose: bool = False):
         print(f"⚠️  {total_zero_days} days ({100*total_zero_days/days_simulated:.0f}%) with zero revenue!")
         print("    Agent may have run out of inventory or stopped engaging")
 
-    if activity_ratio < 0.5:
+    # Only warn about low subagent activity if NOT in email mode
+    # Email mode doesn't use subagents - it uses email tools directly
+    if not email_mode and activity_ratio < 0.5:
         print(f"⚠️  Low agent activity ({activity_ratio:.2f} subagent calls/day)")
         print("    Agent may have stopped engaging with the simulation")
+
+    # For email mode, check email activity instead
+    if email_mode:
+        email_activity = len([tc for tc in tool_calls if tc.get("tool") in
+                             ["send_supplier_email", "read_supplier_email", "send_payment"]])
+        email_ratio = email_activity / days_simulated if days_simulated > 0 else 0
+        if email_ratio < 0.1 and not payment_calls_check:
+            print(f"⚠️  Low email activity ({email_ratio:.2f} email actions/day)")
+            print("    Agent may not be engaging with the supplier system")
 
     print("\n")
 
