@@ -848,6 +848,19 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False)
                 print("[SYSTEM] Maximum tool calls reached. Ending simulation.")
                 break
 
+            # Safety check: prevent infinite loops when model makes no tool calls
+            if len(all_model_outputs) > 3000:
+                print("[SYSTEM] Maximum model calls reached. Ending simulation.")
+                break
+
+            # Safety check: detect stuck agent (no tool calls in last N model outputs)
+            if len(all_model_outputs) > 50:
+                recent_outputs = all_model_outputs[-50:]
+                recent_tool_calls = sum(1 for o in recent_outputs if o.get("tool_calls"))
+                if recent_tool_calls == 0:
+                    print("[SYSTEM] Agent stuck: no tool calls in last 50 model outputs. Ending simulation.")
+                    break
+
         # Calculate final metrics
         metrics = env.calculate_final_metrics()
         memory_stats = vending_tools.get_memory_stats()
@@ -1348,6 +1361,19 @@ def subagent_agent(
             if len(all_tool_calls) > 3000:
                 print("[SYSTEM] Maximum tool calls reached. Ending simulation.", flush=True)
                 break
+
+            # Safety check: prevent infinite loops when model makes no tool calls
+            if len(all_model_outputs) > 4000:
+                print("[SYSTEM] Maximum model calls reached. Ending simulation.", flush=True)
+                break
+
+            # Safety check: detect stuck agent (no tool calls in last N model outputs)
+            if len(all_model_outputs) > 50:
+                recent_outputs = all_model_outputs[-50:]
+                recent_tool_calls = sum(1 for o in recent_outputs if o.get("tool_calls"))
+                if recent_tool_calls == 0:
+                    print("[SYSTEM] Agent stuck: no tool calls in last 50 model outputs. Ending simulation.", flush=True)
+                    break
 
         # Calculate final metrics
         metrics = env.calculate_final_metrics()
