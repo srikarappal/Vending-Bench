@@ -73,6 +73,24 @@ def analyze_eval(eval_path: str, verbose: bool = False):
     # Read the eval log
     log = read_eval_log(eval_path)
 
+    # Check if run completed with samples
+    if not log.samples:
+        print("ERROR: No samples found in eval log.")
+        print("This usually means the experiment was cancelled before completing.")
+        print("\nAttempting to extract partial data from log...")
+
+        # Try to extract what we can from the log
+        if hasattr(log, 'status'):
+            print(f"Log status: {log.status}")
+        if hasattr(log, 'error') and log.error:
+            print(f"Error: {log.error}")
+
+        # Check if there are any events or partial data
+        if hasattr(log, 'events') and log.events:
+            print(f"Found {len(log.events)} events in partial log")
+
+        return
+
     # Get sample and simulation results
     sample = log.samples[0]
     sim_results = sample.metadata.get("simulation_results", {})
@@ -232,9 +250,12 @@ def analyze_eval(eval_path: str, verbose: bool = False):
 
     # === ORDER INVENTORY ===
     print("\n=== INVENTORY ORDERS ===")
+    # Check both direct orders (order_inventory) and email mode orders (send_payment)
     order_calls = [tc for tc in tool_calls if tc.get("tool") == "order_inventory"]
+    payment_calls = [tc for tc in tool_calls if tc.get("tool") == "send_payment"]
 
     if order_calls:
+        print("  Direct Orders (order_inventory):")
         total_order_cost = 0
         for tc in order_calls:
             day = tc.get("day", "?")
@@ -244,35 +265,138 @@ def analyze_eval(eval_path: str, verbose: bool = False):
             quantity = input_data.get("quantity", 0)
             cost = result.get("cost", 0)
             total_order_cost += cost
-            print(f"  Day {day}: Ordered {quantity} {product} for ${cost:.2f}")
-        print(f"\n  Total order costs: ${total_order_cost:.2f}")
-    else:
+            print(f"    Day {day}: Ordered {quantity} {product} for ${cost:.2f}")
+        print(f"  Total direct order costs: ${total_order_cost:.2f}")
+
+    if payment_calls:
+        print("  Email Mode Orders (send_payment):")
+        total_payment_cost = 0
+        for tc in payment_calls:
+            day = tc.get("day", "?")
+            input_data = tc.get("input", {})
+            result = tc.get("result", {})
+            supplier = input_data.get("to", "unknown")
+            amount = input_data.get("amount", 0)
+            products = input_data.get("products", {})
+            total_payment_cost += amount
+            products_str = ", ".join(f"{q} {p}" for p, q in products.items()) if isinstance(products, dict) else str(products)
+            print(f"    Day {day}: Paid ${amount:.2f} to {supplier} for {products_str}")
+        print(f"  Total email order costs: ${total_payment_cost:.2f}")
+
+    if not order_calls and not payment_calls:
         print("  No inventory orders made")
+
+    # === ZERO REVENUE ANALYSIS ===
+    print("\n=== ZERO REVENUE ANALYSIS ===")
+    zero_revenue_days = []
+    current_streak = []
+    longest_streak = []
+
+    for dr in daily_revenues:
+        if dr["revenue"] == 0:
+            current_streak.append(dr["day"])
+        else:
+            if len(current_streak) > len(longest_streak):
+                longest_streak = current_streak.copy()
+            if len(current_streak) >= 3:  # Track streaks of 3+ days
+                zero_revenue_days.append((current_streak[0], current_streak[-1], len(current_streak)))
+            current_streak = []
+
+    # Check final streak
+    if len(current_streak) > len(longest_streak):
+        longest_streak = current_streak.copy()
+    if len(current_streak) >= 3:
+        zero_revenue_days.append((current_streak[0], current_streak[-1], len(current_streak)))
+
+    total_zero_days = sum(1 for dr in daily_revenues if dr["revenue"] == 0)
+    print(f"Total days with $0 revenue: {total_zero_days}/{len(daily_revenues)} ({100*total_zero_days/len(daily_revenues):.1f}%)")
+
+    if longest_streak:
+        print(f"Longest zero-revenue streak: {len(longest_streak)} days (Day {longest_streak[0]} to {longest_streak[-1]})")
+
+    if zero_revenue_days:
+        print("Zero-revenue streaks (3+ days):")
+        for start, end, length in zero_revenue_days:
+            print(f"  Days {start}-{end}: {length} consecutive days")
+
+    # === AGENT ACTIVITY ANALYSIS ===
+    print("\n=== AGENT ACTIVITY ANALYSIS ===")
+
+    # Analyze subagent activity by day ranges
+    days_simulated = final_metrics.get("days_simulated", 200)
+    subagent_by_period = defaultdict(int)
+    orders_by_period = defaultdict(int)
+
+    for tc in tool_calls:
+        day = tc.get("day", 0)
+        period = (day // 50) * 50  # 0-49, 50-99, 100-149, 150-199
+        if tc.get("tool") in ["run_sub_agent", "chat_with_sub_agent"]:
+            subagent_by_period[period] += 1
+        if tc.get("tool") in ["order_inventory", "send_payment"]:
+            orders_by_period[period] += 1
+
+    print(f"{'Period':<15} {'Subagent Calls':>15} {'Orders':>10}")
+    print("-" * 45)
+    for period in [0, 50, 100, 150]:
+        period_end = min(period + 49, days_simulated - 1)
+        if period < days_simulated:
+            print(f"Days {period:3d}-{period_end:<3d}     {subagent_by_period.get(period, 0):>15} {orders_by_period.get(period, 0):>10}")
+
+    # === INVENTORY FLOW ANALYSIS ===
+    print("\n=== INVENTORY FLOW ANALYSIS ===")
+    storage_value = final_metrics.get("storage_value", 0)
+    machine_value = final_metrics.get("machine_value", 0)
+
+    print(f"Final Storage Value: ${storage_value:.2f}")
+    print(f"Final Machine Value: ${machine_value:.2f}")
+
+    if storage_value > 20 and machine_value < 5:
+        print("⚠️  WARNING: High storage, empty machine!")
+        print("   Items are stuck in storage - agent should use stock_machine tool")
+
+    if tool_counts.get("stock_machine", 0) == 0:
+        print("⚠️  WARNING: Agent never called stock_machine!")
+        print("   Items ordered go to storage, need stock_machine to move to vending machine")
 
     # === ANALYSIS SUMMARY ===
     print("\n" + "=" * 70)
     print("ANALYSIS SUMMARY")
     print("=" * 70)
 
-    days_simulated = final_metrics.get("days_simulated", 1)
     avg_daily_revenue = total_daily_revenue / days_simulated if days_simulated > 0 else 0
 
     print(f"Average daily revenue: ${avg_daily_revenue:.2f}")
     print(f"Revenue per tool call: ${total_daily_revenue / len(tool_calls):.2f}" if tool_calls else "N/A")
 
+    # Activity ratio
+    total_subagent = tool_counts.get("run_sub_agent", 0) + tool_counts.get("chat_with_sub_agent", 0)
+    activity_ratio = total_subagent / days_simulated if days_simulated > 0 else 0
+    print(f"Subagent calls per day: {activity_ratio:.2f}")
+
     # Check for anomalies
     print("\n=== POTENTIAL ISSUES ===")
 
     if avg_daily_revenue > 150:
-        print(f"WARNING: Average daily revenue (${avg_daily_revenue:.2f}) seems very high!")
-        print("         Andon Labs benchmark shows ~$5-15/day for most models")
+        print(f"⚠️  Average daily revenue (${avg_daily_revenue:.2f}) seems very high!")
+        print("    Andon Labs benchmark shows ~$5-15/day for most models")
 
     total_units_sold = sum(p["units"] for p in product_sales.values())
     if total_units_sold / days_simulated > 50:
-        print(f"WARNING: Selling {total_units_sold/days_simulated:.1f} units/day - demand may be too high!")
+        print(f"⚠️  Selling {total_units_sold/days_simulated:.1f} units/day - demand may be too high!")
 
-    if not order_calls:
-        print("NOTE: Agent never ordered inventory - only used starting stock")
+    # Check if agent ever ordered (via direct or email mode)
+    order_calls_check = [tc for tc in tool_calls if tc.get("tool") == "order_inventory"]
+    payment_calls_check = [tc for tc in tool_calls if tc.get("tool") == "send_payment"]
+    if not order_calls_check and not payment_calls_check:
+        print("⚠️  Agent never ordered inventory - only used starting stock")
+
+    if total_zero_days > days_simulated * 0.3:
+        print(f"⚠️  {total_zero_days} days ({100*total_zero_days/days_simulated:.0f}%) with zero revenue!")
+        print("    Agent may have run out of inventory or stopped engaging")
+
+    if activity_ratio < 0.5:
+        print(f"⚠️  Low agent activity ({activity_ratio:.2f} subagent calls/day)")
+        print("    Agent may have stopped engaging with the simulation")
 
     print("\n")
 
