@@ -9,7 +9,6 @@ Supports both direct tool access and sub-agent architecture (matching VendingBen
 """
 
 import json
-import time
 from typing import Dict, List, Any, Tuple
 
 from inspect_ai import Task, task
@@ -569,8 +568,7 @@ def vending_baseline(
     starting_cash: float = 500.0,
     event_complexity: str = "simple",
     customer_model: str = "anthropic/claude-sonnet-4-5-20241022",
-    email_system_enabled: bool = False,
-    debug: bool = False
+    email_system_enabled: bool = False
 ) -> Task:
     """
     Baseline vending machine task without memory.
@@ -581,7 +579,6 @@ def vending_baseline(
         event_complexity: Event complexity level ("simple", "medium", "full")
         customer_model: Model to use for the agent
         email_system_enabled: If True, use VendingBench 2 email-based supplier negotiation
-        debug: If True, print and log latency metrics during simulation
 
     Returns:
         inspect_ai Task
@@ -602,8 +599,7 @@ def vending_baseline(
                 "starting_cash": starting_cash,
                 "event_complexity": event_complexity,
                 "customer_model": customer_model,
-                "email_system_enabled": email_system_enabled,
-                "debug": debug
+                "email_system_enabled": email_system_enabled
             }
         )
     ]
@@ -614,7 +610,7 @@ def vending_baseline(
 
     return Task(
         dataset=dataset,
-        solver=[baseline_agent(config, email_system_enabled=email_system_enabled, debug=debug)],
+        solver=[baseline_agent(config, email_system_enabled=email_system_enabled)],
         scorer=[profit_scorer(), survival_scorer()],
         name=f"vending_{model_short}_{simulation_days}d{mode_suffix}",
         model=customer_model  # Pass the model to inspect_ai
@@ -622,7 +618,7 @@ def vending_baseline(
 
 
 @solver
-def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False, debug: bool = False) -> Solver:
+def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False) -> Solver:
     """
     Baseline agent using inspect_ai's native model abstraction.
 
@@ -631,7 +627,6 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
     Args:
         config: Simulation configuration
         email_system_enabled: If True, use email-based supplier negotiation
-        debug: If True, print and log latency metrics during simulation
     """
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         # Initialize simulation with email system flag
@@ -664,17 +659,6 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
         all_tool_calls = []
         all_model_outputs = []  # Store full model outputs including usage/reasoning
         total_usage = {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0}
-
-        # Latency tracking (for debug mode)
-        latency_metrics = {
-            "llm_calls": [],  # List of {day, latency_ms, input_tokens, output_tokens}
-            "tool_executions": [],  # List of {day, tool_name, latency_ms}
-            "overnight_processing": [],  # List of {day, latency_ms, emails_generated}
-            "total_llm_time_ms": 0,
-            "total_tool_time_ms": 0,
-            "total_overnight_time_ms": 0,
-            "simulation_start_time": time.time()
-        }
 
         # Build initial morning briefing (Day 0 start)
         morning_briefing = _build_morning_briefing(env, is_first_day=True)
@@ -726,14 +710,11 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
             # - Keeping most recent conversation (preserve=0.7 by default)
             trimmed_messages = await trim_messages(state.messages, preserve=0.7)
 
-            # Generate model response with tools (with latency tracking)
-            llm_start_time = time.time()
+            # Generate model response with tools
             output = await model.generate(
                 input=trimmed_messages,
                 tools=tools,
             )
-            llm_latency_ms = (time.time() - llm_start_time) * 1000
-            latency_metrics["total_llm_time_ms"] += llm_latency_ms
 
             # Capture full model output for logging
             model_output_record = {
@@ -769,37 +750,18 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
 
             all_model_outputs.append(model_output_record)
 
-            # Record LLM latency metrics
-            llm_latency_record = {
-                "day": env.current_day,
-                "latency_ms": round(llm_latency_ms, 2),
-                "input_tokens": model_output_record.get("usage", {}).get("input_tokens", 0),
-                "output_tokens": model_output_record.get("usage", {}).get("output_tokens", 0)
-            }
-            latency_metrics["llm_calls"].append(llm_latency_record)
-
-            if debug:
-                print(f"    [DEBUG] LLM call: {llm_latency_ms:.0f}ms | in:{llm_latency_record['input_tokens']} out:{llm_latency_record['output_tokens']}", flush=True)
-
             # Add assistant response to messages
             state.messages.append(output.message)
 
             # Check if model made tool calls
             if output.message.tool_calls:
-                # Execute tools using inspect_ai's execute_tools (with latency tracking)
+                # Execute tools using inspect_ai's execute_tools
                 # execute_tools expects the full message list and finds tool calls in the last assistant message
-                tool_exec_start_time = time.time()
                 execute_result = await execute_tools(state.messages, tools)
-                tool_exec_latency_ms = (time.time() - tool_exec_start_time) * 1000
-                latency_metrics["total_tool_time_ms"] += tool_exec_latency_ms
                 tool_messages = execute_result.messages
                 state.messages.extend(tool_messages)
 
                 # Track tool calls with results for logging
-                # Note: We track aggregate tool latency per batch (execute_tools runs all tools in parallel)
-                num_tools_in_batch = len(output.message.tool_calls)
-                avg_tool_latency_ms = tool_exec_latency_ms / num_tools_in_batch if num_tools_in_batch > 0 else 0
-
                 for i, tc in enumerate(output.message.tool_calls):
                     # Get the corresponding tool result
                     tool_result = None
@@ -817,25 +779,8 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
                         "tool_call_id": tc.id
                     })
 
-                    # Record tool latency
-                    latency_metrics["tool_executions"].append({
-                        "day": env.current_day,
-                        "tool_name": tc.function,
-                        "latency_ms": round(avg_tool_latency_ms, 2),  # Estimated per-tool latency
-                        "batch_latency_ms": round(tool_exec_latency_ms, 2)  # Total batch latency
-                    })
-
-                    # Special handling for wait_for_next_day (INSIDE for loop - checks each tool call)
+                    # Special handling for wait_for_next_day
                     if tc.function == "wait_for_next_day":
-                        # Record overnight processing latency (includes supplier email generation)
-                        overnight_latency_record = {
-                            "day": env.current_day,
-                            "latency_ms": round(tool_exec_latency_ms, 2),
-                            "emails_generated": 0  # Will be updated below if available
-                        }
-                        latency_metrics["overnight_processing"].append(overnight_latency_record)
-                        latency_metrics["total_overnight_time_ms"] += tool_exec_latency_ms
-
                         # Find the specific tool message matching this tool call
                         for tm in tool_messages:
                             # Match by tool_call_id to get the correct result
@@ -849,14 +794,7 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
                                         revenue = sales.get("total_revenue", 0)
                                         units = sales.get("total_units_sold", 0)
 
-                                        # Update overnight latency record with email count
-                                        new_emails_count = result.get("new_emails", 0)
-                                        overnight_latency_record["emails_generated"] = new_emails_count
-
-                                        if debug:
-                                            print(f"    [DEBUG] Overnight: {tool_exec_latency_ms:.0f}ms | emails:{new_emails_count}", flush=True)
-
-                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools", flush=True)
+                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools")
 
                                         # Update display counters
                                         if isinstance(new_day, int):
@@ -892,12 +830,6 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
                                 except (json.JSONDecodeError, TypeError):
                                     pass
                                 break  # Found the matching tool message, stop searching
-
-                # Debug print for tool batch (outside for loop)
-                if debug:
-                    tool_names = [tc.function for tc in output.message.tool_calls]
-                    print(f"    [DEBUG] Tools: {tool_names} | batch:{tool_exec_latency_ms:.0f}ms", flush=True)
-
             else:
                 # No tool calls - model might be done or need prompting
                 if not env.is_complete:
@@ -916,34 +848,9 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
                 print("[SYSTEM] Maximum tool calls reached. Ending simulation.")
                 break
 
-            # Safety check: prevent infinite loops when model makes no tool calls
-            if len(all_model_outputs) > 3000:
-                print("[SYSTEM] Maximum model calls reached. Ending simulation.")
-                break
-
-            # Safety check: detect stuck agent (no tool calls in last N model outputs)
-            if len(all_model_outputs) > 50:
-                recent_outputs = all_model_outputs[-50:]
-                recent_tool_calls = sum(1 for o in recent_outputs if o.get("tool_calls"))
-                if recent_tool_calls == 0:
-                    print(f"[SYSTEM] Agent stuck: no tool calls in last 50 model outputs. Ending simulation.")
-                    break
-
         # Calculate final metrics
         metrics = env.calculate_final_metrics()
         memory_stats = vending_tools.get_memory_stats()
-
-        # Finalize latency metrics
-        latency_metrics["simulation_end_time"] = time.time()
-        latency_metrics["total_simulation_time_ms"] = (latency_metrics["simulation_end_time"] - latency_metrics["simulation_start_time"]) * 1000
-        latency_metrics["avg_llm_latency_ms"] = (
-            latency_metrics["total_llm_time_ms"] / len(latency_metrics["llm_calls"])
-            if latency_metrics["llm_calls"] else 0
-        )
-        latency_metrics["avg_overnight_latency_ms"] = (
-            latency_metrics["total_overnight_time_ms"] / len(latency_metrics["overnight_processing"])
-            if latency_metrics["overnight_processing"] else 0
-        )
 
         # Progress logging - final summary
         print(f"\n{'='*60}")
@@ -963,15 +870,6 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
         # Calculate total from components (total_tokens from API can be unreliable)
         calculated_total = total_usage['input_tokens'] + total_usage['output_tokens'] + total_usage['reasoning_tokens']
         print(f"    Total:  {calculated_total:,}")
-
-        # Print latency summary (always, not just debug mode)
-        total_sim_time_sec = latency_metrics["total_simulation_time_ms"] / 1000
-        total_sim_time_min = total_sim_time_sec / 60
-        print(f"  Latency Summary:")
-        print(f"    Total Simulation Time: {total_sim_time_min:.1f} min ({total_sim_time_sec:.0f}s)")
-        print(f"    Total LLM Time: {latency_metrics['total_llm_time_ms']/1000:.1f}s ({len(latency_metrics['llm_calls'])} calls, avg {latency_metrics['avg_llm_latency_ms']:.0f}ms)")
-        print(f"    Total Tool Time: {latency_metrics['total_tool_time_ms']/1000:.1f}s")
-        print(f"    Total Overnight Time: {latency_metrics['total_overnight_time_ms']/1000:.1f}s (avg {latency_metrics['avg_overnight_latency_ms']:.0f}ms)")
         print(f"{'='*60}\n")
 
         # Log to transcript
@@ -987,35 +885,16 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False,
             "total_usage": total_usage
         })
 
-        # Prepare latency summary for storage
-        latency_summary = {
-            "total_simulation_time_ms": latency_metrics["total_simulation_time_ms"],
-            "total_llm_time_ms": latency_metrics["total_llm_time_ms"],
-            "total_tool_time_ms": latency_metrics["total_tool_time_ms"],
-            "total_overnight_time_ms": latency_metrics["total_overnight_time_ms"],
-            "avg_llm_latency_ms": latency_metrics["avg_llm_latency_ms"],
-            "avg_overnight_latency_ms": latency_metrics["avg_overnight_latency_ms"],
-            "llm_call_count": len(latency_metrics["llm_calls"]),
-            "overnight_count": len(latency_metrics["overnight_processing"]),
-        }
-
-        # For debug mode, include detailed per-call latency data
-        if debug:
-            latency_summary["llm_calls"] = latency_metrics["llm_calls"]
-            latency_summary["overnight_processing"] = latency_metrics["overnight_processing"]
-
         # Store results in state (full output capture)
         state.metadata["simulation_results"] = {
             "final_metrics": metrics,
             "tool_calls": all_tool_calls,
-            "model_outputs": all_model_outputs,
-            "total_usage": total_usage,
+            "model_outputs": all_model_outputs,  # Full model outputs with usage/reasoning
+            "total_usage": total_usage,  # Aggregated token usage
             "memory_stats": memory_stats,
             "agent_type": "baseline",
             "model_name": model.name,
-            "email_system_enabled": email_system_enabled,
-            "latency_metrics": latency_summary,
-            "debug_mode": debug
+            "email_system_enabled": email_system_enabled
         }
 
         # Add completion message
@@ -1469,19 +1348,6 @@ def subagent_agent(
             if len(all_tool_calls) > 3000:
                 print("[SYSTEM] Maximum tool calls reached. Ending simulation.", flush=True)
                 break
-
-            # Safety check: prevent infinite loops when model makes no tool calls
-            if len(all_model_outputs) > 4000:
-                print("[SYSTEM] Maximum model calls reached. Ending simulation.", flush=True)
-                break
-
-            # Safety check: detect stuck agent (no tool calls in last N model outputs)
-            if len(all_model_outputs) > 50:
-                recent_outputs = all_model_outputs[-50:]
-                recent_tool_calls = sum(1 for o in recent_outputs if o.get("tool_calls"))
-                if recent_tool_calls == 0:
-                    print(f"[SYSTEM] Agent stuck: no tool calls in last 50 model outputs. Ending simulation.", flush=True)
-                    break
 
         # Calculate final metrics
         metrics = env.calculate_final_metrics()
