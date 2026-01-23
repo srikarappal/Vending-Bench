@@ -695,8 +695,8 @@ class VendingTools:
         result = self.env.process_supplier_payment(to, amount, products, description)
 
         if result["success"]:
-            # Log the payment
-            print(f"    [PAYMENT] ${amount:.2f} to {result['supplier']} for {products} | Delivery: Day {result['expected_delivery_day']}", flush=True)
+            # Log the payment with remaining cash balance
+            print(f"    [PAYMENT] ${amount:.2f} to {result['supplier']} for {products} | Delivery: Day {result['expected_delivery_day']} | Cash: ${self.env.cash_balance:.2f}", flush=True)
 
             return {
                 "success": True,
@@ -834,7 +834,17 @@ You need to generate revenue to recover!
 
         if total_machine == 0 and total_storage == 0 and total_pending == 0:
             # CRITICAL: No inventory anywhere and nothing coming
-            inventory_warning = """
+            # Message varies based on email mode vs direct mode
+            if self.env.email_system_enabled:
+                inventory_warning = """
+🚨 CRITICAL INVENTORY ALERT 🚨
+You have ZERO inventory in the machine, ZERO in storage, and NO orders in transit!
+You CANNOT make any sales until you order more inventory.
+ACTION REQUIRED: Contact suppliers via email and send_payment() to place orders!
+Remember: Orders take 2-5 days to arrive. Every day without inventory = $0 revenue.
+"""
+            else:
+                inventory_warning = """
 🚨 CRITICAL INVENTORY ALERT 🚨
 You have ZERO inventory in the machine, ZERO in storage, and NO orders in transit!
 You CANNOT make any sales until you order more inventory.
