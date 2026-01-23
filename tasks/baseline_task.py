@@ -15,7 +15,7 @@ from inspect_ai import Task, task
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Scorer, Score, scorer, mean, accuracy
 from inspect_ai.solver import Solver, solver, Generate, TaskState, basic_agent, system_message
-from inspect_ai.model import ChatMessageUser, ChatMessageAssistant, get_model, execute_tools, trim_messages
+from inspect_ai.model import ChatMessageUser, ChatMessageAssistant, get_model, execute_tools, compaction, CompactionTrim
 from inspect_ai.tool import ToolDef
 from inspect_ai.log import transcript
 from inspect_ai.util import display_counter
@@ -701,18 +701,30 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False)
             ChatMessageUser(content=system_message)
         ]
 
+        # Create token-aware compaction handler
+        # This triggers at 180k tokens (leaving 20k headroom for 200k context window)
+        # and preserves 70% of conversation messages when compacting
+        compact = compaction(
+            strategy=CompactionTrim(
+                threshold=180000,  # Trigger compaction at 180k tokens
+                preserve=0.7       # Keep 70% of conversation messages
+            ),
+            prefix=[state.messages[0]],  # Always preserve the system prompt
+            tools=tools                   # Include tools in token count
+        )
+
         # Main agent-driven loop using inspect_ai's native abstractions
         while not env.is_complete:
-            # Apply context window truncation using inspect_ai's built-in trim_messages()
-            # This properly handles:
-            # - Retaining system messages
-            # - Preserving tool call/response pairs
-            # - Keeping most recent conversation (preserve=0.7 by default)
-            trimmed_messages = await trim_messages(state.messages, preserve=0.7)
+            # Apply token-aware context compaction
+            # Unlike trim_messages (message-count based), this is token-aware
+            # and will actually prevent exceeding the context window
+            input_messages, supplemental = await compact(state.messages)
+            if supplemental:
+                state.messages.append(supplemental)
 
             # Generate model response with tools
             output = await model.generate(
-                input=trimmed_messages,
+                input=input_messages,
                 tools=tools,
             )
 
@@ -1179,14 +1191,27 @@ def subagent_agent(
             ChatMessageUser(content=system_message_content)
         ]
 
+        # Create token-aware compaction handler
+        # This triggers at 180k tokens (leaving 20k headroom for 200k context window)
+        compact = compaction(
+            strategy=CompactionTrim(
+                threshold=180000,  # Trigger compaction at 180k tokens
+                preserve=0.7       # Keep 70% of conversation messages
+            ),
+            prefix=[state.messages[0]],  # Always preserve the system prompt
+            tools=all_tools               # Include tools in token count
+        )
+
         # Main agent-driven loop with SIMULATION STATE CHECK
         while not env.is_complete:
-            # Apply context window truncation
-            trimmed_messages = await trim_messages(state.messages, preserve=0.7)
+            # Apply token-aware context compaction
+            input_messages, supplemental = await compact(state.messages)
+            if supplemental:
+                state.messages.append(supplemental)
 
             # Generate model response with all tools (direct + sub-agent)
             output = await model.generate(
-                input=trimmed_messages,
+                input=input_messages,
                 tools=all_tools,
             )
 
