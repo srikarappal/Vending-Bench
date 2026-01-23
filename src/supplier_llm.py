@@ -137,7 +137,7 @@ def generate_supplier_response(
     supplier: Supplier,
     agent_email: SupplierEmail,
     email_history: List[SupplierEmail],
-    model: str = "claude-haiku-4-5-20250514"
+    model: str = "claude-haiku-4-5-20251001"
 ) -> Tuple[str, str]:
     """
     Generate a supplier response using LLM.

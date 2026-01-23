@@ -82,10 +82,11 @@ def run_experiment(
     # Sanitize model name (replace / with _)
     model_short = customer_llm_model.replace("/", "_").replace(":", "_")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    mode_suffix = "_email" if email_system_enabled else ""
     if prefix:
-        log_name = f"{prefix}_{agent_type}_{model_short}_{simulation_days}d_{timestamp}"
+        log_name = f"{prefix}_{agent_type}_{model_short}_{simulation_days}d{mode_suffix}_{timestamp}"
     else:
-        log_name = f"{agent_type}_{model_short}_{simulation_days}d_{timestamp}"
+        log_name = f"{agent_type}_{model_short}_{simulation_days}d{mode_suffix}_{timestamp}"
 
     print(f"\n{'='*70}")
     print(f"Running Vending-Bench 2 Experiment")
