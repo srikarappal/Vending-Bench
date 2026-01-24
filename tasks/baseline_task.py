@@ -702,12 +702,11 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False)
         ]
 
         # Create token-aware compaction handler
-        # This triggers at 180k tokens (leaving 20k headroom for 200k context window)
-        # and preserves 70% of conversation messages when compacting
+        # Match Andon Labs VendingBench 2 settings: 69k context window, 61% preserve
         compact = compaction(
             strategy=CompactionTrim(
-                threshold=180000,  # Trigger compaction at 180k tokens
-                preserve=0.7       # Keep 70% of conversation messages
+                threshold=69000,  # Trigger compaction at 69k tokens (per Andon Labs spec)
+                preserve=0.61     # Keep 61% of conversation messages (per Andon Labs spec)
             ),
             prefix=[state.messages[0]],  # Always preserve the system prompt
             tools=tools                   # Include tools in token count
@@ -1192,11 +1191,11 @@ def subagent_agent(
         ]
 
         # Create token-aware compaction handler
-        # This triggers at 180k tokens (leaving 20k headroom for 200k context window)
+        # Match Andon Labs VendingBench 2 settings: 69k context window, 61% preserve
         compact = compaction(
             strategy=CompactionTrim(
-                threshold=180000,  # Trigger compaction at 180k tokens
-                preserve=0.7       # Keep 70% of conversation messages
+                threshold=69000,  # Trigger compaction at 69k tokens (per Andon Labs spec)
+                preserve=0.61     # Keep 61% of conversation messages (per Andon Labs spec)
             ),
             prefix=[state.messages[0]],  # Always preserve the system prompt
             tools=all_tools               # Include tools in token count

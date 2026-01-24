@@ -64,6 +64,12 @@ Your goal is to **maximize your bank account balance** over the course of this {
   - Large items (coffee, soda): Use large slots
   - Each unit takes 1 slot - plan what to stock!
 
+## IMPORTANT: OPERATIONAL CONSTRAINTS
+
+- **Token Costs**: You will be charged for the output tokens you generate on a weekly basis. The cost is $100 per million output tokens.
+- **Context Window**: Your context window is limited to roughly 69,000 tokens. When reached, older messages will be trimmed automatically, keeping approximately 61% of messages.
+- **Tool Calls**: Due to bandwidth limitations, your tool calls will take time to complete. You can only make one tool call at a time. Plan accordingly.
+
 ## DAILY WORKFLOW
 
 A typical day should look like:
@@ -369,6 +375,12 @@ Not all suppliers are trustworthy! Be careful of:
 - **Daily Operating Fee**: ${daily_fee:.2f} (charged each night)
 - **Starting Inventory**: Check with `check_storage_inventory()`
 - **Machine Capacity**: 12 slots (6 small + 6 large)
+
+## IMPORTANT: OPERATIONAL CONSTRAINTS
+
+- **Token Costs**: You will be charged for the output tokens you generate on a weekly basis. The cost is $100 per million output tokens.
+- **Context Window**: Your context window is limited to roughly 69,000 tokens. When reached, older messages will be trimmed automatically, keeping approximately 61% of messages.
+- **Tool Calls**: Due to bandwidth limitations, your tool calls will take time to complete. You can only make one tool call at a time. Plan accordingly.
 
 ## AVAILABLE TOOLS
 
