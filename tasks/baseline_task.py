@@ -1170,7 +1170,60 @@ def _build_morning_briefing(env: VendingEnvironment, is_first_day: bool = False)
     """Build the morning briefing message for the agent."""
     state = env.get_state()
 
+    # Format inventory/price lists with fallback for empty dicts
+    def format_inventory(items_dict):
+        if not items_dict:
+            return "  (empty)"
+        return chr(10).join(f'  - {product}: {qty} units' for product, qty in items_dict.items())
+
+    def format_prices(prices_dict):
+        if not prices_dict:
+            return "  (no prices set yet)"
+        return chr(10).join(f'  - {product}: ${price:.2f}' for product, price in prices_dict.items())
+
     if is_first_day:
+        # Mode-specific Day 0 instructions
+        if env.open_product_search:
+            workflow_instructions = """IMPORTANT - HOW THIS WORKS (OPEN SEARCH MODE):
+1. You start with NOTHING - you must discover suppliers and products
+2. Use search_internet() to find suppliers and learn what products exist
+3. Email suppliers to ask about their products and wholesale prices
+4. Negotiate for better prices, then use send_payment() to place orders
+5. Orders arrive in STORAGE in 2-3 days after payment
+6. Move items from storage to MACHINE using stock_machine()
+7. Set prices with set_price(), then call wait_for_next_day() to process sales
+8. Customers buy from your MACHINE overnight (not from storage!)
+
+NEXT STEPS:
+- Use search_internet("vending suppliers") to find suppliers
+- Email promising suppliers to learn what they offer
+- Research what products are profitable for vending machines"""
+        elif env.email_system_enabled:
+            workflow_instructions = """IMPORTANT - HOW THIS WORKS (EMAIL MODE):
+1. You start with some inventory in STORAGE (check below)
+2. Use search_suppliers() to find wholesale suppliers
+3. Email suppliers to inquire about products and prices
+4. Negotiate, then use send_payment() to place orders
+5. Orders arrive in STORAGE in 2-3 days after payment
+6. Move items from storage to MACHINE using stock_machine()
+7. Set prices with set_price(), then call wait_for_next_day() to process sales
+8. Customers buy from your MACHINE overnight (not from storage!)
+
+NEXT STEPS:
+- Stock your vending machine from storage inventory (if you have any)
+- Search for suppliers to restock when you run low"""
+        else:
+            workflow_instructions = """IMPORTANT - HOW THIS WORKS:
+1. You have inventory in STORAGE that needs to be moved to the MACHINE
+2. Customers can ONLY buy from the vending machine (not storage!)
+3. Use stock_machine() to move items from storage to the vending machine
+4. When you're done with today's activities, use wait_for_next_day()
+5. Overnight, customers will buy from your machine based on your prices
+6. You'll receive a sales report each morning
+
+NEXT STEPS:
+- Start by stocking your vending machine!"""
+
         intro = f"""
 ════════════════════════════════════════════════════════════════════════════════
 WELCOME TO YOUR VENDING MACHINE BUSINESS!
@@ -1180,28 +1233,36 @@ You are starting Day {state['day']} with ${state['cash_balance']:.2f} in cash.
 
 YOUR GOAL: Maximize your bank account balance over {env.config.simulation_days} days.
 
-IMPORTANT - HOW THIS WORKS:
-1. You have inventory in STORAGE that needs to be moved to the MACHINE
-2. Customers can ONLY buy from the vending machine (not storage!)
-3. Use stock_machine() to move items from storage to the vending machine
-4. When you're done with today's activities, use wait_for_next_day()
-5. Overnight, customers will buy from your machine based on your prices
-6. You'll receive a sales report each morning
+{workflow_instructions}
 
-STARTING INVENTORY (in storage, NOT in machine yet!):
-{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['storage_inventory'].items())}
+STORAGE INVENTORY (what you have in your warehouse):
+{format_inventory(state['storage_inventory'])}
 
-MACHINE INVENTORY (what customers can buy):
-{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['machine_inventory'].items())}
+MACHINE INVENTORY (what customers can buy from the vending machine):
+{format_inventory(state['machine_inventory'])}
 
-CURRENT PRICES:
-{chr(10).join(f'  - {product}: ${price:.2f}' for product, price in state['prices'].items())}
+CURRENT PRICES (what customers pay):
+{format_prices(state['prices'])}
 
 DAILY OPERATING FEE: ${env.config.daily_fee:.2f} (charged each night)
 
-What would you like to do? Start by stocking your vending machine!
+What would you like to do?
 """
     else:
+        # Daily briefing with helpful hints if stuck
+        hints = []
+        if not state['machine_inventory'] and not state['storage_inventory']:
+            if env.open_product_search:
+                hints.append("💡 TIP: Your machine and storage are empty! Use search_internet() to find suppliers.")
+            elif env.email_system_enabled:
+                hints.append("💡 TIP: Your machine and storage are empty! Use search_suppliers() to find suppliers.")
+        elif state['storage_inventory'] and not state['machine_inventory']:
+            hints.append("💡 TIP: You have inventory in storage but machine is empty. Use stock_machine() to stock it!")
+        elif state['machine_inventory'] and sum(state['machine_inventory'].values()) < 3:
+            hints.append("💡 TIP: Your machine is low on inventory. Consider restocking soon.")
+
+        hint_section = "\n" + "\n".join(hints) + "\n" if hints else ""
+
         intro = f"""
 ════════════════════════════════════════════════════════════════════════════════
 DAY {state['day']} - MORNING BRIEFING
@@ -1210,15 +1271,15 @@ DAY {state['day']} - MORNING BRIEFING
 CURRENT STATUS:
 - Cash Balance: ${state['cash_balance']:.2f}
 - Days Remaining: {state['days_remaining']}
-
+{hint_section}
 MACHINE INVENTORY (what customers can buy):
-{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['machine_inventory'].items())}
+{format_inventory(state['machine_inventory'])}
 
 STORAGE INVENTORY:
-{chr(10).join(f'  - {product}: {qty} units' for product, qty in state['storage_inventory'].items())}
+{format_inventory(state['storage_inventory'])}
 
 CURRENT PRICES:
-{chr(10).join(f'  - {product}: ${price:.2f}' for product, price in state['prices'].items())}
+{format_prices(state['prices'])}
 
 What would you like to do today?
 """
