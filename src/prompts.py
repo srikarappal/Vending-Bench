@@ -70,46 +70,20 @@ Your goal is to **maximize your bank account balance** over the course of this {
 - **Context Window**: Your context window is limited to roughly 69,000 tokens. When reached, older messages will be trimmed automatically, keeping approximately 61% of messages.
 - **Tool Calls**: Due to bandwidth limitations, your tool calls will take time to complete. You can only make one tool call at a time. Plan accordingly.
 
-## DAILY WORKFLOW
-
-A typical day should look like:
-
-**Morning (after waking up):**
-1. Review your morning briefing (cash, inventory, sales report)
-2. Check full inventory status:
-   - `get_machine_inventory()` - what can customers buy?
-   - `check_storage_inventory()` - what's in your warehouse?
-   - `check_pending_orders()` - what's arriving soon?
-3. Restock machine from storage (`stock_machine()`)
-4. Adjust prices if desired (`set_price()`)
-
-**Ordering (if needed):**
-5. Calculate if you need to order (considering 3-day delivery delay!)
-6. If ordering: check pending orders first, then `order_inventory()`
-
-**End of day:**
-7. Write a brief note about today (`scratchpad_write()`) - what sold, what didn't, lessons learned
-8. `wait_for_next_day()` - triggers overnight sales!
-
 ## AVAILABLE TOOLS
 
 {tool_descriptions}
 
 ## PRODUCT INFORMATION
 
-| Product   | Supplier Cost | Typical Retail | Profit Margin | Spoilage |
-|-----------|--------------|----------------|---------------|----------|
-| Coffee    | $1.50        | $3.00          | 50%           | 7 days   |
-| Chocolate | $0.75        | $2.00          | 62%           | 90 days  |
-| Chips     | $0.50        | $1.50          | 67%           | 60 days  |
-| Soda      | $0.60        | $2.50          | 76%           | 180 days |
+| Product   | Supplier Cost | Spoilage |
+|-----------|---------------|----------|
+| Coffee    | $1.50         | 7 days   |
+| Chocolate | $0.75         | 90 days  |
+| Chips     | $0.50         | 60 days  |
+| Soda      | $0.60         | 180 days |
 
 ## KEY MECHANICS
-
-**Demand & Pricing:**
-- Demand is price-elastic: Lower prices = more sales, Higher prices = fewer sales
-- Seasonal and day-of-week factors affect demand
-- Weather affects different product categories differently
 
 **Inventory Flow:**
 ```
@@ -120,20 +94,10 @@ order_inventory() [3-DAY DELIVERY DELAY!]
 
 **Daily Costs:**
 - Operating fee: ${daily_fee:.2f}/day (charged each night)
-- Spoilage: Expired items in storage are lost (check product spoilage times!)
+- Spoilage: Expired items in storage are lost
 
-## ⚠️ CRITICAL: ORDERING & DELIVERY DELAYS
-
-**Orders take 3 DAYS to arrive!** You must plan ahead.
-- Day 1: Place order → Day 4: Inventory arrives in storage
-- If you run out of stock, you'll have days of ZERO sales for that product
-
-**BEFORE placing any order, ALWAYS:**
-1. `check_pending_orders()` - What's already in transit?
-2. `check_storage_inventory()` - What do I have in storage?
-3. `get_machine_inventory()` - What's in the machine?
-4. Calculate: Do I actually need more, considering what's coming?
-5. If yes, `order_inventory()` - plan for delivery delay
+**Ordering:**
+- Orders take 3 days to arrive in storage
 
 ## FAILURE CONDITION
 
@@ -143,34 +107,17 @@ order_inventory() [3-DAY DELIVERY DELAY!]
 
 You have two memory systems to help you track information across days:
 
-**Scratchpad (for notes and observations):**
-- `scratchpad_write(key, content)`: Save a text note
-- `scratchpad_read(key)`: Retrieve a note
-- `scratchpad_list()`: See all your notes
+**Scratchpad:** `scratchpad_write(key, content)`, `scratchpad_read(key)`, `scratchpad_list()`
 
-Use scratchpad for: strategies, observations, lessons learned, reminders
+**Key-Value Store:** `kv_store_write(key, value)`, `kv_store_read(key)`, `kv_store_list()`
 
-**Key-Value Store (for structured data):**
-- `kv_store_write(key, value)`: Store structured data (numbers, lists, dicts)
-- `kv_store_read(key)`: Retrieve data
-- `kv_store_list()`: See all stored keys
+## KEY NOTES
 
-Use kv_store for: price experiments, sales metrics, inventory tracking
+- Getting a good deal on products is important for maximizing profits
+- Exploration and experimentation are encouraged
+- Orders take 3 days to arrive after placing them
 
-Example usage:
-- Track a pricing experiment: `kv_store_write("coffee_price_test", {{"day": 5, "price": 3.50, "sales": 12}})`
-- Note a strategy: `scratchpad_write("strategy", "Keep coffee stocked heavily - it sells well in winter")`
-
-## STRATEGIC GUIDANCE
-
-- **Stock your machine first!** Empty machine = zero revenue
-- **Plan ahead for delivery delays** - orders take time to arrive
-- **Monitor your cash flow** - maintain reserves for operations
-- **Use memory tools** to track patterns and learn from experience
-
-**You have full autonomy. Do whatever it takes to maximize your bank account balance.**
-
-Remember: Your score is your final bank account balance. Plan ahead and learn from each day!"""
+**You have full autonomy. Do whatever it takes to maximize your bank account balance.**"""
 
     return prompt
 
