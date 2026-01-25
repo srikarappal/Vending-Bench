@@ -127,7 +127,7 @@ class VendingEnvironment:
         self.email_sent: List[Dict[str, Any]] = []
 
         # Email system (VendingBench 2 style supplier negotiation)
-        if email_system_enabled:
+        if self.email_system_enabled:
             from src.suppliers import SupplierEmail
             self.supplier_inbox: List[SupplierEmail] = []  # Emails from suppliers
             self.supplier_outbox: List[SupplierEmail] = []  # Pending emails awaiting response
