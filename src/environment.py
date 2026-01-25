@@ -1000,10 +1000,16 @@ class VendingEnvironment:
         Returns:
             Tuple of (can_stock: bool, reason: str, max_stockable: int)
         """
-        if product not in PRODUCT_CATALOG:
-            return False, f"Unknown product: {product}", 0
-
-        product_size = PRODUCT_CATALOG[product]["size"]
+        # Get product size from correct catalog
+        if self.open_product_search:
+            product_info = self._get_product_info(product)
+            if not product_info:
+                return False, f"Unknown product: {product}", 0
+            product_size = product_info.get("size", "small")
+        else:
+            if product not in PRODUCT_CATALOG:
+                return False, f"Unknown product: {product}", 0
+            product_size = PRODUCT_CATALOG[product]["size"]
 
         if product_size == "small":
             available = self.machine_small_slots_max - self.machine_small_slots_used
@@ -1028,13 +1034,21 @@ class VendingEnvironment:
         Returns:
             True if successful
         """
-        product_size = PRODUCT_CATALOG[product]["size"]
+        # Get product size from correct catalog
+        if self.open_product_search:
+            product_info = self._get_product_info(product)
+            product_size = product_info.get("size", "small") if product_info else "small"
+        else:
+            product_size = PRODUCT_CATALOG[product]["size"]
 
         if product_size == "small":
             self.machine_small_slots_used += quantity
         else:
             self.machine_large_slots_used += quantity
 
+        # Ensure product key exists
+        if product not in self.machine_inventory:
+            self.machine_inventory[product] = 0
         self.machine_inventory[product] += quantity
         return True
 
@@ -1049,14 +1063,19 @@ class VendingEnvironment:
         Returns:
             True if successful
         """
-        product_size = PRODUCT_CATALOG[product]["size"]
+        # Get product size from correct catalog
+        if self.open_product_search:
+            product_info = self._get_product_info(product)
+            product_size = product_info.get("size", "small") if product_info else "small"
+        else:
+            product_size = PRODUCT_CATALOG[product]["size"]
 
         if product_size == "small":
             self.machine_small_slots_used = max(0, self.machine_small_slots_used - quantity)
         else:
             self.machine_large_slots_used = max(0, self.machine_large_slots_used - quantity)
 
-        self.machine_inventory[product] = max(0, self.machine_inventory[product] - quantity)
+        self.machine_inventory[product] = max(0, self.machine_inventory.get(product, 0) - quantity)
         return True
 
     def calculate_final_metrics(self) -> Dict[str, Any]:
