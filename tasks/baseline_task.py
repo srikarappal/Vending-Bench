@@ -935,23 +935,28 @@ def baseline_agent(
 
         # Initialize conversation with system prompt and morning briefing
         # Store the system prompt separately for context management
-        system_message = f"{system_prompt}\n\n{morning_briefing}"
+        system_message_text = f"{system_prompt}\n\n{morning_briefing}"
+
+        # Check if state.messages exists (it should be initialized by inspect_ai)
+        if not hasattr(state, 'messages') or state.messages is None:
+            state.messages = []
+
         state.messages = [
-            ChatMessageUser(content=system_message)
+            ChatMessageUser(content=system_message_text)
         ]
 
         # Main agent-driven loop using inspect_ai's native abstractions
         while not env.is_complete:
             # Apply token-aware context compaction if messages getting large
             # Match Andon Labs VendingBench 2 settings: 69k context window
-            if len(state.messages) > 100:  # Rough heuristic for token count
+            if hasattr(state, 'messages') and len(state.messages) > 100:  # Rough heuristic for token count
                 # Preserve system prompt (first message) and recent messages (last 61%)
                 preserve_count = max(int(len(state.messages) * 0.61), 20)
                 system_msg = state.messages[0]
                 recent_msgs = state.messages[-preserve_count:]
                 state.messages = [system_msg] + recent_msgs
 
-            input_messages = state.messages
+            input_messages = state.messages if hasattr(state, 'messages') else []
 
             # Generate model response with tools
             output = await model.generate(
