@@ -765,7 +765,8 @@ def vending_baseline(
     event_complexity: str = "simple",
     customer_model: str = "anthropic/claude-sonnet-4-5-20241022",
     email_system_enabled: bool = False,
-    open_product_search: bool = False
+    open_product_search: bool = False,
+    verbose: bool = False
 ) -> Task:
     """
     Baseline vending machine task without memory.
@@ -778,6 +779,8 @@ def vending_baseline(
         email_system_enabled: If True, use VendingBench 2 email-based supplier negotiation
         open_product_search: If True, use expanded product universe with discoverable suppliers
                              (implies email_system_enabled=True)
+        verbose: If True, enable debug logging (tool calls, stuck agent hints).
+                 Set to False for clean benchmark runs matching Andon Labs setup.
 
     Returns:
         inspect_ai Task
@@ -786,7 +789,8 @@ def vending_baseline(
         simulation_days=simulation_days,
         starting_cash=starting_cash,
         event_complexity=event_complexity,
-        max_messages=2000
+        max_messages=2000,
+        verbose=verbose
     )
 
     # Create dataset with single sample (the simulation)
@@ -1045,7 +1049,18 @@ def baseline_agent(
                                         revenue = sales.get("total_revenue", 0)
                                         units = sales.get("total_units_sold", 0)
 
-                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} units sold | {len(all_tool_calls)} tools")
+                                        # Get current inventory levels
+                                        state = env.get_state()
+                                        machine_inv = state.get("machine_inventory", {})
+                                        storage_inv = state.get("storage_inventory", {})
+
+                                        # Format inventory compactly (total units)
+                                        machine_total = sum(machine_inv.values()) if machine_inv else 0
+                                        storage_total = sum(storage_inv.values()) if storage_inv else 0
+
+                                        # Build daily summary with inventory
+                                        inv_str = f"Machine: {machine_total}u | Storage: {storage_total}u"
+                                        print(f"  Day {new_day}: ${cash:.2f} cash | ${revenue:.2f} revenue | {units} sold | {inv_str} | {len(all_tool_calls)} tools")
 
                                         # Update display counters
                                         if isinstance(new_day, int):

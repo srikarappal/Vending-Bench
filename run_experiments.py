@@ -126,7 +126,8 @@ def run_experiment(
             event_complexity=event_complexity,
             customer_model=customer_llm_model,
             email_system_enabled=email_system_enabled,
-            open_product_search=open_product_search
+            open_product_search=open_product_search,
+            verbose=debug
         )
     elif agent_type == "subagent":
         task = vending_subagent(

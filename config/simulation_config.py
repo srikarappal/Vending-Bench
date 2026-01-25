@@ -30,7 +30,7 @@ class SimulationConfig:
     storage_base_path: str = "./storage/vending"
 
     # Logging
-    verbose: bool = True
+    verbose: bool = False  # Set to False for clean benchmarking (matches Andon Labs). Use --debug flag to enable.
     save_detailed_logs: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
