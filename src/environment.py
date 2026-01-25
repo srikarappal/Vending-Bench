@@ -298,7 +298,14 @@ class VendingEnvironment:
                 # Check if this order will actually deliver
                 if order.will_deliver:
                     # Order has arrived - add to storage
-                    expiration_day = self.current_day + PRODUCT_CATALOG[order.product]["spoilage_days"]
+                    # Get product info from correct catalog
+                    if self.open_product_search:
+                        product_info = self._get_product_info(order.product)
+                        spoilage_days = product_info.get("spoilage_days", 365) if product_info else 365
+                    else:
+                        spoilage_days = PRODUCT_CATALOG[order.product]["spoilage_days"]
+
+                    expiration_day = self.current_day + spoilage_days
                     new_item = InventoryItem(
                         product=order.product,
                         quantity=order.quantity,
@@ -306,6 +313,10 @@ class VendingEnvironment:
                         supplier_cost=order.supplier_cost,
                         expiration_day=expiration_day
                     )
+
+                    # Ensure product key exists in storage inventory
+                    if order.product not in self.storage_inventory:
+                        self.storage_inventory[order.product] = []
                     self.storage_inventory[order.product].append(new_item)
 
                     delivered.append({
