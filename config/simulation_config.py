@@ -18,7 +18,7 @@ class SimulationConfig:
     # Starting conditions
     starting_cash: float = 500.0
     daily_fee: float = 2.0  # Operating cost per day
-    starting_inventory_units: int = 10  # Units of each product to start with (reduced to force ordering)
+    starting_inventory_units: int = 0  # Units of each product to start with (0 = empty, matching Andon Labs)
 
     # Agent constraints
     max_messages: int = 2000  # Message limit for the entire simulation
