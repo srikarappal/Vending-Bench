@@ -10,7 +10,7 @@ Each supplier persona has specific behavior patterns:
 The agent LLM must parse supplier emails itself - no regex help.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from anthropic import Anthropic
 
 from .suppliers import (
