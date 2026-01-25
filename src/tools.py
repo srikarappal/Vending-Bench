@@ -283,12 +283,22 @@ class VendingTools:
         """
         self.env.message_count += 1
 
-        # Validation
-        if product not in PRODUCT_CATALOG:
-            return {
-                "success": False,
-                "error": f"Unknown product: {product}. Available: {list(PRODUCT_CATALOG.keys())}"
-            }
+        # Validation - check product exists in appropriate catalog
+        if self.open_product_search:
+            from src.product_universe import PRODUCT_UNIVERSE
+            product_info = self.env._get_product_info(product)
+            if not product_info:
+                return {
+                    "success": False,
+                    "error": f"Unknown product: {product}"
+                }
+        else:
+            if product not in PRODUCT_CATALOG:
+                return {
+                    "success": False,
+                    "error": f"Unknown product: {product}. Available: {list(PRODUCT_CATALOG.keys())}"
+                }
+            product_info = PRODUCT_CATALOG[product]
 
         if quantity <= 0:
             return {
@@ -300,7 +310,7 @@ class VendingTools:
         can_stock, reason, max_stockable = self.env.can_stock_product(product, quantity)
         if not can_stock:
             slot_status = self.env.get_machine_slot_status()
-            product_size = PRODUCT_CATALOG[product]["size"]
+            product_size = product_info["size"]
             return {
                 "success": False,
                 "error": reason,
@@ -311,8 +321,14 @@ class VendingTools:
             }
 
         # Check storage availability
-        storage_items = self.env.storage_inventory[product]
+        storage_items = self.env.storage_inventory.get(product, [])
         total_in_storage = sum(item.quantity for item in storage_items)
+
+        if total_in_storage == 0:
+            return {
+                "success": False,
+                "error": f"No {product} in storage. Order from suppliers first!"
+            }
 
         if total_in_storage < quantity:
             return {
@@ -347,13 +363,14 @@ class VendingTools:
         slot_status = self.env.get_machine_slot_status()
 
         # Debug log for stocking operations
-        print(f"    [STOCK] {quantity} {product} → Machine now has {self.env.machine_inventory[product]}", flush=True)
+        machine_qty = self.env.machine_inventory.get(product, 0)
+        print(f"    [STOCK] {quantity} {product} → Machine now has {machine_qty}", flush=True)
 
         return {
             "success": True,
             "product": product,
             "quantity": quantity,
-            "machine_inventory_after": self.env.machine_inventory[product],
+            "machine_inventory_after": machine_qty,
             "storage_inventory_after": sum(item.quantity for item in storage_items),
             "slot_status": slot_status,
             "message": f"Stocked {quantity} units of {product} in machine. Slots: {slot_status['total_used']}/{slot_status['total_max']} used"
@@ -376,11 +393,23 @@ class VendingTools:
         """
         self.env.message_count += 1
 
-        if product not in PRODUCT_CATALOG:
-            return {
-                "success": False,
-                "error": f"Unknown product: {product}"
-            }
+        # Validation - check product exists
+        if self.open_product_search:
+            product_info = self.env._get_product_info(product)
+            if not product_info:
+                return {
+                    "success": False,
+                    "error": f"Unknown product: {product}"
+                }
+            # In open search, base_wholesale is the supplier cost
+            supplier_cost = product_info.get("base_wholesale", 0)
+        else:
+            if product not in PRODUCT_CATALOG:
+                return {
+                    "success": False,
+                    "error": f"Unknown product: {product}"
+                }
+            supplier_cost = PRODUCT_CATALOG[product]["supplier_cost"]
 
         if price <= 0:
             return {
@@ -388,22 +417,25 @@ class VendingTools:
                 "error": "Price must be positive"
             }
 
-        old_price = self.env.current_prices[product]
+        old_price = self.env.current_prices.get(product, 0.0)
         self.env.current_prices[product] = price
 
         # Calculate margin
-        supplier_cost = PRODUCT_CATALOG[product]["supplier_cost"]
-        margin = ((price - supplier_cost) / price) * 100 if price > 0 else 0
+        margin = ((price - supplier_cost) / price) * 100 if price > 0 and supplier_cost > 0 else 0
 
-        return {
+        result = {
             "success": True,
             "product": product,
             "old_price": old_price,
             "new_price": price,
-            "profit_margin": f"{margin:.1f}%",
-            "supplier_cost": supplier_cost,
             "message": f"Updated {product} price: ${old_price:.2f} → ${price:.2f}"
         }
+
+        if supplier_cost > 0:
+            result["profit_margin"] = f"{margin:.1f}%"
+            result["supplier_cost"] = supplier_cost
+
+        return result
 
     def get_prices(self) -> Dict[str, Any]:
         """
@@ -416,8 +448,13 @@ class VendingTools:
 
         prices = {}
         for product, price in self.env.current_prices.items():
-            supplier_cost = PRODUCT_CATALOG[product]["supplier_cost"]
-            margin = ((price - supplier_cost) / price) * 100 if price > 0 else 0
+            if self.open_product_search:
+                product_info = self.env._get_product_info(product)
+                supplier_cost = product_info.get("base_wholesale", 0) if product_info else 0
+            else:
+                supplier_cost = PRODUCT_CATALOG.get(product, {}).get("supplier_cost", 0)
+
+            margin = ((price - supplier_cost) / price) * 100 if price > 0 and supplier_cost > 0 else 0
             prices[product] = {
                 "retail_price": price,
                 "supplier_cost": supplier_cost,
