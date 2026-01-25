@@ -53,7 +53,8 @@ def run_experiment(
     log_dir: str = "./experiments/logs",
     debug: bool = False,
     prefix: str = None,
-    email_system_enabled: bool = False
+    email_system_enabled: bool = False,
+    open_product_search: bool = False
 ):
     """
     Run a single vending machine experiment.
@@ -71,6 +72,7 @@ def run_experiment(
         debug: Enable debug mode
         prefix: Optional prefix for log filename identification
         email_system_enabled: Enable VendingBench 2 style email-based supplier negotiation
+        open_product_search: Enable open product search with 40+ products and 10+ suppliers
 
     Returns:
         Evaluation results
@@ -82,7 +84,12 @@ def run_experiment(
     # Sanitize model name (replace / with _)
     model_short = customer_llm_model.replace("/", "_").replace(":", "_")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    mode_suffix = "_email" if email_system_enabled else ""
+    if open_product_search:
+        mode_suffix = "_open"
+    elif email_system_enabled:
+        mode_suffix = "_email"
+    else:
+        mode_suffix = ""
     if prefix:
         log_name = f"{prefix}_{agent_type}_{model_short}_{simulation_days}d{mode_suffix}_{timestamp}"
     else:
@@ -95,7 +102,12 @@ def run_experiment(
     print(f"Simulation Days: {simulation_days}")
     print(f"Starting Cash: ${starting_cash:.2f}")
     print(f"Event Complexity: {event_complexity}")
-    print(f"Ordering Mode: {'EMAIL (supplier negotiation)' if email_system_enabled else 'DIRECT (fixed prices)'}")
+    if open_product_search:
+        print(f"Ordering Mode: OPEN SEARCH (40+ products, 10+ suppliers, email negotiation)")
+    elif email_system_enabled:
+        print(f"Ordering Mode: EMAIL (4 products, 4 suppliers, email negotiation)")
+    else:
+        print(f"Ordering Mode: DIRECT (4 products, fixed prices)")
     if agent_type == "engram":
         print(f"Memory LLM: {memory_llm_model}")
         print(f"Customer LLM: {customer_llm_model}")
@@ -113,7 +125,8 @@ def run_experiment(
             starting_cash=starting_cash,
             event_complexity=event_complexity,
             customer_model=customer_llm_model,
-            email_system_enabled=email_system_enabled
+            email_system_enabled=email_system_enabled,
+            open_product_search=open_product_search
         )
     elif agent_type == "subagent":
         task = vending_subagent(
@@ -373,6 +386,12 @@ def main():
         default=False,
         help="Enable VendingBench 2 style email-based supplier negotiation (default: direct ordering)"
     )
+    parser.add_argument(
+        "--open-product-search",
+        action="store_true",
+        default=False,
+        help="Enable open product search mode with 40+ products and 10+ discoverable suppliers (implies --email-system)"
+    )
 
     args = parser.parse_args()
 
@@ -400,7 +419,8 @@ def main():
             log_dir=args.log_dir,
             debug=args.debug,
             prefix=args.prefix,
-            email_system_enabled=args.email_system
+            email_system_enabled=args.email_system,
+            open_product_search=args.open_product_search
         )
 
 

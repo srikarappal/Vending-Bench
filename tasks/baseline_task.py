@@ -197,6 +197,202 @@ def create_all_tools(vending_tools: VendingTools) -> List[ToolDef]:
     return create_direct_tools(vending_tools) + create_physical_tools(vending_tools)
 
 
+def create_open_search_tools(vending_tools: VendingTools) -> List[ToolDef]:
+    """
+    Create tools for OPEN PRODUCT SEARCH mode (expanded product universe).
+
+    In this mode:
+    - search_internet tool is available for discovering suppliers/products
+    - Expanded product universe with 40+ products
+    - Discoverable suppliers (10+) instead of fixed 4
+    - Email-based ordering (no order_inventory)
+    """
+
+    # Internet search tool (open search mode only)
+    async def search_internet(query: str) -> str:
+        """Search the internet for suppliers, products, or market info."""
+        result = vending_tools.search_internet(query)
+        return json.dumps(result)
+
+    # Email/Supplier tools (same as email mode)
+    async def search_suppliers(query: str = "") -> str:
+        """Search for wholesale suppliers."""
+        result = vending_tools.search_suppliers(query)
+        return json.dumps(result)
+
+    async def send_supplier_email(to: str, subject: str, body: str) -> str:
+        """Send email to a supplier."""
+        result = vending_tools.send_supplier_email(to, subject, body)
+        return json.dumps(result)
+
+    async def list_supplier_emails(unread_only: bool = False) -> str:
+        """List emails in inbox from suppliers."""
+        result = vending_tools.list_supplier_emails(unread_only)
+        return json.dumps(result)
+
+    async def read_supplier_email(email_id: int) -> str:
+        """Read a specific email from a supplier."""
+        result = vending_tools.read_supplier_email(email_id)
+        return json.dumps(result)
+
+    async def send_payment(to: str, amount: float, products: str, description: str = "") -> str:
+        """Send payment to supplier to place order."""
+        try:
+            products_dict = json.loads(products)
+        except (json.JSONDecodeError, TypeError):
+            return json.dumps({"success": False, "error": f"Invalid products format. Expected JSON dict."})
+        result = vending_tools.send_payment(to, amount, products_dict, description)
+        return json.dumps(result)
+
+    # Standard tools (same as email mode but without order_inventory)
+    async def check_balance() -> str:
+        result = vending_tools.check_balance()
+        return json.dumps(result)
+
+    async def check_storage_inventory() -> str:
+        result = vending_tools.check_storage_inventory()
+        return json.dumps(result)
+
+    async def check_pending_orders() -> str:
+        result = vending_tools.check_pending_orders()
+        return json.dumps(result)
+
+    async def get_machine_inventory() -> str:
+        result = vending_tools.get_machine_inventory()
+        return json.dumps(result)
+
+    async def stock_machine(product: str, quantity: int) -> str:
+        result = vending_tools.stock_machine(product, quantity)
+        return json.dumps(result)
+
+    async def set_price(product: str, price: float) -> str:
+        result = vending_tools.set_price(product, price)
+        return json.dumps(result)
+
+    async def research_market(query: str) -> str:
+        result = vending_tools.research_product(query)
+        return json.dumps(result)
+
+    async def wait_for_next_day() -> str:
+        result = vending_tools.wait_for_next_day()
+        return json.dumps(result)
+
+    async def scratchpad_write(key: str, content: str) -> str:
+        result = vending_tools.scratchpad_write(key, content)
+        return json.dumps(result)
+
+    async def scratchpad_read(key: str) -> str:
+        result = vending_tools.scratchpad_read(key)
+        return json.dumps(result)
+
+    async def scratchpad_list() -> str:
+        result = vending_tools.scratchpad_list()
+        return json.dumps(result)
+
+    async def scratchpad_delete(key: str) -> str:
+        result = vending_tools.scratchpad_delete(key)
+        return json.dumps(result)
+
+    async def kv_store_write(key: str, value: str) -> str:
+        try:
+            parsed_value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            parsed_value = value
+        result = vending_tools.kv_store_write(key, parsed_value)
+        return json.dumps(result)
+
+    async def kv_store_read(key: str) -> str:
+        result = vending_tools.kv_store_read(key)
+        return json.dumps(result)
+
+    async def kv_store_list() -> str:
+        result = vending_tools.kv_store_list()
+        return json.dumps(result)
+
+    async def kv_store_delete(key: str) -> str:
+        result = vending_tools.kv_store_delete(key)
+        return json.dumps(result)
+
+    async def collect_cash() -> str:
+        result = vending_tools.collect_cash()
+        return json.dumps(result)
+
+    async def get_prices() -> str:
+        result = vending_tools.get_prices()
+        return json.dumps(result)
+
+    return [
+        # INTERNET SEARCH (OPEN SEARCH MODE ONLY)
+        ToolDef(tool=search_internet, name="search_internet",
+                description="Search the internet for vending suppliers, products, or market info. Returns suppliers you can contact via email.",
+                parameters={"query": "Search query (e.g., 'vending suppliers san francisco', 'energy drink wholesale')"}),
+        # EMAIL/SUPPLIER TOOLS
+        ToolDef(tool=search_suppliers, name="search_suppliers",
+                description="Search for wholesale suppliers. Use this if search_internet doesn't give enough options.",
+                parameters={"query": "(Optional) Search query"}),
+        ToolDef(tool=send_supplier_email, name="send_supplier_email",
+                description="Send email to a supplier. Ask about their products and prices!",
+                parameters={"to": "Supplier email", "subject": "Email subject", "body": "Your message"}),
+        ToolDef(tool=list_supplier_emails, name="list_supplier_emails",
+                description="List emails in your inbox from suppliers.",
+                parameters={"unread_only": "(Optional) Only show unread"}),
+        ToolDef(tool=read_supplier_email, name="read_supplier_email",
+                description="Read a specific email from a supplier.",
+                parameters={"email_id": "Email ID (integer)"}),
+        ToolDef(tool=send_payment, name="send_payment",
+                description="Send payment to supplier after negotiating via email. Places your order.",
+                parameters={"to": "Supplier email", "amount": "Total payment",
+                           "products": "JSON dict of products e.g. {\"coca_cola_12oz\": 50}",
+                           "description": "(Optional) Order notes"}),
+        # STANDARD TOOLS
+        ToolDef(tool=check_balance, name="check_balance",
+                description="Get current cash balance."),
+        ToolDef(tool=check_storage_inventory, name="check_storage_inventory",
+                description="Check inventory in storage warehouse."),
+        ToolDef(tool=check_pending_orders, name="check_pending_orders",
+                description="Check status of orders in transit."),
+        ToolDef(tool=get_machine_inventory, name="get_machine_inventory",
+                description="Get inventory in vending machine."),
+        ToolDef(tool=stock_machine, name="stock_machine",
+                description="Move items from storage to vending machine.",
+                parameters={"product": "Product ID", "quantity": "Units to move"}),
+        ToolDef(tool=set_price, name="set_price",
+                description="Set retail price for a product.",
+                parameters={"product": "Product ID", "price": "Price in dollars"}),
+        ToolDef(tool=research_market, name="research_market",
+                description="Research market information (use search_internet for more detail).",
+                parameters={"query": "Search query"}),
+        ToolDef(tool=wait_for_next_day, name="wait_for_next_day",
+                description="End current day and advance to next. Overnight sales processed, supplier emails arrive."),
+        ToolDef(tool=scratchpad_write, name="scratchpad_write",
+                description="Write notes for future reference.",
+                parameters={"key": "Note name", "content": "Content"}),
+        ToolDef(tool=scratchpad_read, name="scratchpad_read",
+                description="Read a note.",
+                parameters={"key": "Note name"}),
+        ToolDef(tool=scratchpad_list, name="scratchpad_list",
+                description="List all notes."),
+        ToolDef(tool=scratchpad_delete, name="scratchpad_delete",
+                description="Delete a note.",
+                parameters={"key": "Note name"}),
+        ToolDef(tool=kv_store_write, name="kv_store_write",
+                description="Store structured data.",
+                parameters={"key": "Data key", "value": "JSON value"}),
+        ToolDef(tool=kv_store_read, name="kv_store_read",
+                description="Read structured data.",
+                parameters={"key": "Key to read"}),
+        ToolDef(tool=kv_store_list, name="kv_store_list",
+                description="List all stored keys."),
+        ToolDef(tool=kv_store_delete, name="kv_store_delete",
+                description="Delete stored data.",
+                parameters={"key": "Key to delete"}),
+        ToolDef(tool=collect_cash, name="collect_cash",
+                description="Collect revenue from vending machine."),
+        ToolDef(tool=get_prices, name="get_prices",
+                description="Get current retail prices."),
+    ]
+
+
 def create_email_mode_tools(vending_tools: VendingTools) -> List[ToolDef]:
     """
     Create tools for EMAIL MODE (VendingBench 2 supplier negotiation).
@@ -568,7 +764,8 @@ def vending_baseline(
     starting_cash: float = 500.0,
     event_complexity: str = "simple",
     customer_model: str = "anthropic/claude-sonnet-4-5-20241022",
-    email_system_enabled: bool = False
+    email_system_enabled: bool = False,
+    open_product_search: bool = False
 ) -> Task:
     """
     Baseline vending machine task without memory.
@@ -579,6 +776,8 @@ def vending_baseline(
         event_complexity: Event complexity level ("simple", "medium", "full")
         customer_model: Model to use for the agent
         email_system_enabled: If True, use VendingBench 2 email-based supplier negotiation
+        open_product_search: If True, use expanded product universe with discoverable suppliers
+                             (implies email_system_enabled=True)
 
     Returns:
         inspect_ai Task
@@ -599,18 +798,28 @@ def vending_baseline(
                 "starting_cash": starting_cash,
                 "event_complexity": event_complexity,
                 "customer_model": customer_model,
-                "email_system_enabled": email_system_enabled
+                "email_system_enabled": email_system_enabled,
+                "open_product_search": open_product_search
             }
         )
     ]
 
     # Extract short model name for task name (e.g., "openai/gpt-4o" -> "gpt-4o")
     model_short = customer_model.split("/")[-1] if "/" in customer_model else customer_model
-    mode_suffix = "_email" if email_system_enabled else ""
+    if open_product_search:
+        mode_suffix = "_open"
+    elif email_system_enabled:
+        mode_suffix = "_email"
+    else:
+        mode_suffix = ""
 
     return Task(
         dataset=dataset,
-        solver=[baseline_agent(config, email_system_enabled=email_system_enabled)],
+        solver=[baseline_agent(
+            config,
+            email_system_enabled=email_system_enabled,
+            open_product_search=open_product_search
+        )],
         scorer=[profit_scorer(), survival_scorer()],
         name=f"vending_{model_short}_{simulation_days}d{mode_suffix}",
         model=customer_model  # Pass the model to inspect_ai
@@ -618,7 +827,11 @@ def vending_baseline(
 
 
 @solver
-def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False) -> Solver:
+def baseline_agent(
+    config: SimulationConfig,
+    email_system_enabled: bool = False,
+    open_product_search: bool = False
+) -> Solver:
     """
     Baseline agent using inspect_ai's native model abstraction.
 
@@ -627,20 +840,34 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False)
     Args:
         config: Simulation configuration
         email_system_enabled: If True, use email-based supplier negotiation
+        open_product_search: If True, use expanded product universe with discoverable suppliers
     """
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        # Initialize simulation with email system flag
-        env = VendingEnvironment(config, email_system_enabled=email_system_enabled)
-        vending_tools = VendingTools(env)
+        # Initialize simulation with flags
+        env = VendingEnvironment(
+            config,
+            email_system_enabled=email_system_enabled,
+            open_product_search=open_product_search
+        )
+        vending_tools = VendingTools(env, open_product_search=open_product_search)
 
-        # Create inspect_ai tools based on mode
-        if email_system_enabled:
+        # Create inspect_ai tools based on mode - dispatch at high level
+        if open_product_search:
+            tools = create_open_search_tools(vending_tools)
+        elif email_system_enabled:
             tools = create_email_mode_tools(vending_tools)
         else:
             tools = create_vending_tools(vending_tools)
 
-        # Build system prompt based on mode
-        if email_system_enabled:
+        # Build system prompt based on mode - dispatch at high level
+        if open_product_search:
+            from src.prompts import build_open_search_system_prompt
+            system_prompt = build_open_search_system_prompt(
+                starting_cash=config.starting_cash,
+                daily_fee=config.daily_fee,
+                simulation_days=config.simulation_days
+            )
+        elif email_system_enabled:
             from src.prompts import build_email_mode_system_prompt
             system_prompt = build_email_mode_system_prompt(
                 starting_cash=config.starting_cash,
@@ -667,7 +894,15 @@ def baseline_agent(config: SimulationConfig, email_system_enabled: bool = False)
         model = get_model()
 
         # Progress logging - start
-        mode_str = "EMAIL MODE (supplier negotiation)" if email_system_enabled else "DIRECT MODE"
+        # Mode 3: open_search=True (implies email=True) → 40+ products, 10+ suppliers
+        # Mode 2: email=True, open_search=False → 4 products, 4 suppliers
+        # Mode 1: email=False, open_search=False → Direct ordering, fixed prices
+        if open_product_search:
+            mode_str = "OPEN SEARCH MODE (40+ products, 10+ suppliers, email negotiation)"
+        elif email_system_enabled:
+            mode_str = "EMAIL MODE (4 products, 4 suppliers, email negotiation)"
+        else:
+            mode_str = "DIRECT MODE (4 products, fixed catalog prices)"
         print(f"\n{'='*60}")
         print(f"VENDING SIMULATION STARTED")
         print(f"  Model: {model.name}")
