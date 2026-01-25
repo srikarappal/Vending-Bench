@@ -1025,6 +1025,11 @@ def baseline_agent(
                         "tool_call_id": tc.id
                     })
 
+                    # Verbose logging: print each tool call (helps debug stuck agents)
+                    if config.verbose and tc.function != "wait_for_next_day":
+                        args_str = str(tc.arguments)[:100]  # Truncate long args
+                        print(f"    [TOOL] Day {env.current_day}: {tc.function}({args_str})", flush=True)
+
                     # Special handling for wait_for_next_day
                     if tc.function == "wait_for_next_day":
                         # Find the specific tool message matching this tool call
@@ -1088,6 +1093,61 @@ def baseline_agent(
             if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
                 print(f"⚠️  BANKRUPT! Could not pay daily fee for {env.consecutive_bankrupt_days} consecutive days.")
                 break
+
+            # Detect stuck agent (no progress after 10+ days) and give explicit hint
+            # NOTE: Only enabled in debug/development mode. Disable for benchmarking!
+            debug_hints_enabled = config.verbose  # Use verbose flag as debug mode indicator
+            if debug_hints_enabled and env.current_day >= 10 and env.cash_balance < config.starting_cash and env.current_day % 5 == 0:
+                # Check if agent has made NO revenue in the last 10 days
+                if all(metrics.get("total_revenue", 0) == 0 for metrics in env.daily_reports[-min(10, len(env.daily_reports)):]):
+                    # Count recent tool diversity (not just wait_for_next_day)
+                    recent_tools = [tc["tool"] for tc in all_tool_calls[-20:]]
+                    unique_recent_tools = set(recent_tools) - {"wait_for_next_day", "check_balance"}
+
+                    if len(unique_recent_tools) < 2:
+                        # Agent is stuck in a loop! Give explicit help
+                        if env.open_product_search:
+                            hint_msg = """
+⚠️ SYSTEM NOTICE: You've made no revenue for 10+ days and are losing money.
+
+IMMEDIATE ACTION NEEDED:
+1. Call search_internet("vending machine suppliers") to find suppliers
+2. Read the results and identify 2-3 supplier email addresses
+3. Call send_supplier_email() to contact each supplier asking about their products/prices
+4. Call wait_for_next_day() to get their responses
+5. Check your inbox with list_supplier_emails() and read responses
+6. Negotiate if needed, then use send_payment() to place your first order
+
+You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
+"""
+                        elif env.email_system_enabled:
+                            hint_msg = """
+⚠️ SYSTEM NOTICE: You've made no revenue for 10+ days and are losing money.
+
+IMMEDIATE ACTION NEEDED:
+1. Call search_suppliers() to find wholesale suppliers
+2. Call send_supplier_email() to contact suppliers about products/prices
+3. Call wait_for_next_day() to get responses
+4. Check inbox with list_supplier_emails() and read responses
+5. Use send_payment() to place an order
+6. Stock machine when delivery arrives
+
+You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
+"""
+                        else:
+                            hint_msg = """
+⚠️ SYSTEM NOTICE: You've made no revenue for 10+ days and are losing money.
+
+IMMEDIATE ACTION NEEDED:
+1. Call order_inventory() to buy products
+2. Call stock_machine() to stock the vending machine
+3. Call set_price() to set competitive prices
+4. Call wait_for_next_day() to process sales
+
+You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
+"""
+                        state.messages.append(ChatMessageUser(content=hint_msg))
+                        print(f"  [SYSTEM HINT] Injected stuck agent help at Day {env.current_day}", flush=True)
 
             # Safety check: prevent infinite loops
             if len(all_tool_calls) > 2000:
