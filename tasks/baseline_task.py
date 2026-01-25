@@ -847,6 +847,10 @@ def baseline_agent(
         open_product_search: If True, use expanded product universe with discoverable suppliers
     """
     async def solve(state: TaskState, generate: Generate) -> TaskState:
+        # Debug: Check state type
+        print(f"[DEBUG] state type: {type(state)}", flush=True)
+        print(f"[DEBUG] state dir: {dir(state)[:10]}", flush=True)
+
         # Initialize simulation with flags
         env = VendingEnvironment(
             config,
@@ -937,26 +941,47 @@ def baseline_agent(
         # Store the system prompt separately for context management
         system_message_text = f"{system_prompt}\n\n{morning_briefing}"
 
-        # Check if state.messages exists (it should be initialized by inspect_ai)
-        if not hasattr(state, 'messages') or state.messages is None:
-            state.messages = []
+        # Initialize messages - handle both object and dict state types
+        initial_message = ChatMessageUser(content=system_message_text)
 
-        state.messages = [
-            ChatMessageUser(content=system_message_text)
-        ]
+        # Try setting as attribute first (object), fallback to dict key
+        try:
+            state.messages = [initial_message]
+        except (AttributeError, TypeError):
+            # If state is a dict, try dict-style access
+            if isinstance(state, dict):
+                state['messages'] = [initial_message]
+            else:
+                raise
 
         # Main agent-driven loop using inspect_ai's native abstractions
         while not env.is_complete:
+            # Get messages - handle both object and dict access patterns
+            if hasattr(state, 'messages'):
+                messages = state.messages
+            elif isinstance(state, dict) and 'messages' in state:
+                messages = state['messages']
+            else:
+                # Fallback - shouldn't happen but prevents crash
+                messages = [initial_message]
+                print(f"[WARNING] Could not access state.messages, using initial message only", flush=True)
+
             # Apply token-aware context compaction if messages getting large
             # Match Andon Labs VendingBench 2 settings: 69k context window
-            if hasattr(state, 'messages') and len(state.messages) > 100:  # Rough heuristic for token count
+            if len(messages) > 100:  # Rough heuristic for token count
                 # Preserve system prompt (first message) and recent messages (last 61%)
-                preserve_count = max(int(len(state.messages) * 0.61), 20)
-                system_msg = state.messages[0]
-                recent_msgs = state.messages[-preserve_count:]
-                state.messages = [system_msg] + recent_msgs
+                preserve_count = max(int(len(messages) * 0.61), 20)
+                system_msg = messages[0]
+                recent_msgs = messages[-preserve_count:]
+                messages = [system_msg] + recent_msgs
 
-            input_messages = state.messages if hasattr(state, 'messages') else []
+                # Update state with compacted messages
+                if hasattr(state, 'messages'):
+                    state.messages = messages
+                elif isinstance(state, dict):
+                    state['messages'] = messages
+
+            input_messages = messages
 
             # Generate model response with tools
             output = await model.generate(
@@ -998,16 +1023,26 @@ def baseline_agent(
 
             all_model_outputs.append(model_output_record)
 
-            # Add assistant response to messages
-            state.messages.append(output.message)
+            # Add assistant response to messages (handle both dict and object access)
+            messages.append(output.message)
+            if hasattr(state, 'messages'):
+                state.messages = messages
+            elif isinstance(state, dict):
+                state['messages'] = messages
 
             # Check if model made tool calls
             if output.message.tool_calls:
                 # Execute tools using inspect_ai's execute_tools
                 # execute_tools expects the full message list and finds tool calls in the last assistant message
-                execute_result = await execute_tools(state.messages, tools)
+                execute_result = await execute_tools(messages, tools)
                 tool_messages = execute_result.messages
-                state.messages.extend(tool_messages)
+                messages.extend(tool_messages)
+
+                # Update state with new messages
+                if hasattr(state, 'messages'):
+                    state.messages = messages
+                elif isinstance(state, dict):
+                    state['messages'] = messages
 
                 # Track tool calls with results for logging
                 for i, tc in enumerate(output.message.tool_calls):
@@ -1098,9 +1133,16 @@ def baseline_agent(
                 # No tool calls - model might be done or need prompting
                 if not env.is_complete:
                     # Add continuation prompt
-                    state.messages.append(ChatMessageUser(
+                    continuation_msg = ChatMessageUser(
                         content="Continue managing your vending machine business. Use your tools to check inventory, stock the machine, and advance to the next day with wait_for_next_day()."
-                    ))
+                    )
+                    messages.append(continuation_msg)
+
+                    # Update state
+                    if hasattr(state, 'messages'):
+                        state.messages = messages
+                    elif isinstance(state, dict):
+                        state['messages'] = messages
 
             # Check for bankruptcy
             if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
@@ -1159,7 +1201,15 @@ IMMEDIATE ACTION NEEDED:
 
 You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
 """
-                        state.messages.append(ChatMessageUser(content=hint_msg))
+                        hint_message = ChatMessageUser(content=hint_msg)
+                        messages.append(hint_message)
+
+                        # Update state
+                        if hasattr(state, 'messages'):
+                            state.messages = messages
+                        elif isinstance(state, dict):
+                            state['messages'] = messages
+
                         print(f"  [SYSTEM HINT] Injected stuck agent help at Day {env.current_day}", flush=True)
 
             # Safety check: prevent infinite loops
@@ -1230,9 +1280,15 @@ You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
         }
 
         # Add completion message
-        state.messages.append(ChatMessageAssistant(
+        completion_msg = ChatMessageAssistant(
             content=f"Simulation Complete. Final Net Worth: ${metrics['final_net_worth']:.2f}"
-        ))
+        )
+
+        # Append to messages (handle both dict and object access)
+        if hasattr(state, 'messages'):
+            state.messages.append(completion_msg)
+        elif isinstance(state, dict) and 'messages' in state:
+            state['messages'].append(completion_msg)
 
         return state
 
@@ -1813,9 +1869,15 @@ def subagent_agent(
         }
 
         # Add completion message
-        state.messages.append(ChatMessageAssistant(
+        completion_msg = ChatMessageAssistant(
             content=f"Simulation Complete. Final Net Worth: ${metrics['final_net_worth']:.2f}"
-        ))
+        )
+
+        # Append to messages (handle both dict and object access)
+        if hasattr(state, 'messages'):
+            state.messages.append(completion_msg)
+        elif isinstance(state, dict) and 'messages' in state:
+            state['messages'].append(completion_msg)
 
         return state
 
