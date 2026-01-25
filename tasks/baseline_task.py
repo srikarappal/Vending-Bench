@@ -940,25 +940,18 @@ def baseline_agent(
             ChatMessageUser(content=system_message)
         ]
 
-        # Create token-aware compaction handler
-        # Match Andon Labs VendingBench 2 settings: 69k context window, 61% preserve
-        compact = compaction(
-            strategy=CompactionTrim(
-                threshold=69000,  # Trigger compaction at 69k tokens (per Andon Labs spec)
-                preserve=0.61     # Keep 61% of conversation messages (per Andon Labs spec)
-            ),
-            prefix=[state.messages[0]],  # Always preserve the system prompt
-            tools=tools                   # Include tools in token count
-        )
-
         # Main agent-driven loop using inspect_ai's native abstractions
         while not env.is_complete:
-            # Apply token-aware context compaction
-            # Unlike trim_messages (message-count based), this is token-aware
-            # and will actually prevent exceeding the context window
-            input_messages, supplemental = await compact(state.messages)
-            if supplemental:
-                state.messages.append(supplemental)
+            # Apply token-aware context compaction if messages getting large
+            # Match Andon Labs VendingBench 2 settings: 69k context window
+            if len(state.messages) > 100:  # Rough heuristic for token count
+                # Preserve system prompt (first message) and recent messages (last 61%)
+                preserve_count = max(int(len(state.messages) * 0.61), 20)
+                system_msg = state.messages[0]
+                recent_msgs = state.messages[-preserve_count:]
+                state.messages = [system_msg] + recent_msgs
+
+            input_messages = state.messages
 
             # Generate model response with tools
             output = await model.generate(
