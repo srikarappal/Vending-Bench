@@ -156,10 +156,17 @@ class VendingEnvironment:
             sum(item.supplier_cost * item.quantity for item in items)
             for items in self.storage_inventory.values()
         )
-        starting_machine_value = sum(
-            PRODUCT_CATALOG[product]["supplier_cost"] * quantity
-            for product, quantity in self.machine_inventory.items()
-        )
+
+        # Calculate machine inventory value (mode-aware)
+        starting_machine_value = 0
+        for product, quantity in self.machine_inventory.items():
+            if self.open_product_search:
+                product_info = self._get_product_info(product)
+                cost = product_info.get("base_wholesale", 0) if product_info else 0
+            else:
+                cost = PRODUCT_CATALOG.get(product, {}).get("supplier_cost", 0)
+            starting_machine_value += cost * quantity
+
         self.starting_net_worth = self.cash_balance + starting_storage_value + starting_machine_value
 
         # Starting state report
@@ -932,11 +939,15 @@ class VendingEnvironment:
             for items in self.storage_inventory.values()
         )
 
-        # Calculate machine inventory value (wholesale price)
-        machine_value = sum(
-            PRODUCT_CATALOG[product]["supplier_cost"] * quantity
-            for product, quantity in self.machine_inventory.items()
-        )
+        # Calculate machine inventory value (wholesale price - mode-aware)
+        machine_value = 0
+        for product, quantity in self.machine_inventory.items():
+            if self.open_product_search:
+                product_info = self._get_product_info(product)
+                cost = product_info.get("base_wholesale", 0) if product_info else 0
+            else:
+                cost = PRODUCT_CATALOG.get(product, {}).get("supplier_cost", 0)
+            machine_value += cost * quantity
 
         # Count machine inventory units
         machine_units = sum(self.machine_inventory.values())
@@ -1090,11 +1101,15 @@ class VendingEnvironment:
             for items in self.storage_inventory.values()
         )
 
-        # Machine inventory value (wholesale price) - for reference only
-        machine_value = sum(
-            PRODUCT_CATALOG[product]["supplier_cost"] * quantity
-            for product, quantity in self.machine_inventory.items()
-        )
+        # Machine inventory value (wholesale price - mode-aware) - for reference only
+        machine_value = 0
+        for product, quantity in self.machine_inventory.items():
+            if self.open_product_search:
+                product_info = self._get_product_info(product)
+                cost = product_info.get("base_wholesale", 0) if product_info else 0
+            else:
+                cost = PRODUCT_CATALOG.get(product, {}).get("supplier_cost", 0)
+            machine_value += cost * quantity
 
         # Net worth (for reference, NOT the score)
         final_net_worth = self.cash_balance + storage_value + machine_value
