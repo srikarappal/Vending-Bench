@@ -68,15 +68,23 @@ class VendingEnvironment:
     - Transaction history
     """
 
-    def __init__(self, config: SimulationConfig, email_system_enabled: bool = False):
+    def __init__(
+        self,
+        config: SimulationConfig,
+        email_system_enabled: bool = False,
+        open_product_search: bool = False
+    ):
         """Initialize simulation environment.
 
         Args:
             config: Simulation configuration
             email_system_enabled: If True, use email-based supplier negotiation
+            open_product_search: If True, use expanded product universe with
+                                 discoverable suppliers (implies email_system_enabled)
         """
         self.config = config
-        self.email_system_enabled = email_system_enabled
+        self.email_system_enabled = email_system_enabled or open_product_search
+        self.open_product_search = open_product_search
 
         # Simulation state
         self.current_day = 0
@@ -85,24 +93,29 @@ class VendingEnvironment:
         self.is_complete = False
 
         # Inventory (product -> list of InventoryItem)
-        self.storage_inventory: Dict[str, List[InventoryItem]] = {
-            product: [] for product in PRODUCT_CATALOG.keys()
-        }
-        self.machine_inventory: Dict[str, int] = {
-            product: 0 for product in PRODUCT_CATALOG.keys()
-        }
+        # In open search mode, start empty; otherwise pre-initialize with base products
+        if open_product_search:
+            self.storage_inventory: Dict[str, List[InventoryItem]] = {}
+            self.machine_inventory: Dict[str, int] = {}
+            self.current_prices: Dict[str, float] = {}
+        else:
+            self.storage_inventory: Dict[str, List[InventoryItem]] = {
+                product: [] for product in PRODUCT_CATALOG.keys()
+            }
+            self.machine_inventory: Dict[str, int] = {
+                product: 0 for product in PRODUCT_CATALOG.keys()
+            }
+            # Pricing (product -> price)
+            self.current_prices: Dict[str, float] = {
+                product: info["typical_retail"]
+                for product, info in PRODUCT_CATALOG.items()
+            }
 
         # Machine slot capacity (paper: 4 rows × 3 slots = 12 total)
         self.machine_small_slots_used = 0
         self.machine_large_slots_used = 0
         self.machine_small_slots_max = MACHINE_CONFIG["small_slots"]  # 6
         self.machine_large_slots_max = MACHINE_CONFIG["large_slots"]  # 6
-
-        # Pricing (product -> price)
-        self.current_prices: Dict[str, float] = {
-            product: info["typical_retail"]
-            for product, info in PRODUCT_CATALOG.items()
-        }
 
         # Tracking
         self.transaction_history: List[Transaction] = []
@@ -152,6 +165,30 @@ class VendingEnvironment:
         # Starting state report
         self._log_daily_report()
 
+    def _get_product_info(self, product_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get product information from appropriate source based on mode.
+
+        Args:
+            product_id: Product ID
+
+        Returns:
+            Product info dict or None if not found
+        """
+        if self.open_product_search:
+            from src.product_universe import get_product_info as get_universe_product
+            return get_universe_product(product_id)
+        else:
+            return PRODUCT_CATALOG.get(product_id)
+
+    def _get_all_valid_products(self) -> Dict[str, Dict[str, Any]]:
+        """Get all valid products based on current mode."""
+        if self.open_product_search:
+            from src.product_universe import PRODUCT_UNIVERSE
+            return PRODUCT_UNIVERSE
+        else:
+            return PRODUCT_CATALOG
+
     def _initialize_starter_inventory(self, units_per_product: int):
         """
         Initialize storage with starter inventory.
@@ -159,14 +196,21 @@ class VendingEnvironment:
         Args:
             units_per_product: Number of units of each product to start with
         """
-        for product, info in PRODUCT_CATALOG.items():
+        products = self._get_all_valid_products()
+        for product, info in products.items():
+            # In open search mode, only initialize if product key structure matches
+            supplier_cost = info.get("supplier_cost") or info.get("base_wholesale", 1.0)
+            spoilage = info.get("spoilage_days", 365)
+
             starter_item = InventoryItem(
                 product=product,
                 quantity=units_per_product,
                 purchase_date=0,
-                supplier_cost=info["supplier_cost"],
-                expiration_day=info["spoilage_days"]  # Expires after spoilage_days
+                supplier_cost=supplier_cost,
+                expiration_day=spoilage  # Expires after spoilage_days
             )
+            if product not in self.storage_inventory:
+                self.storage_inventory[product] = []
             self.storage_inventory[product].append(starter_item)
 
     def process_overnight_and_advance_day(self) -> Dict[str, Any]:

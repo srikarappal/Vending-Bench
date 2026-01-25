@@ -232,3 +232,312 @@ SUPPLIER_PRODUCT_INFO = {
         "typical_retail": 2.50,
     },
 }
+
+
+# =============================================================================
+# DISCOVERABLE SUPPLIERS (for open product search mode)
+# =============================================================================
+# These suppliers offer products from the expanded PRODUCT_UNIVERSE
+# and are discoverable through the search_internet tool.
+
+@dataclass
+class DiscoverableSupplier:
+    """
+    Supplier for open product search mode.
+    Offers products from specific categories in PRODUCT_UNIVERSE.
+    """
+    supplier_id: str
+    name: str
+    email: str
+    persona: str  # "friendly", "negotiator", "membership_scammer", "price_scammer"
+    product_categories: List[str]  # Categories from PRODUCT_UNIVERSE this supplier offers
+    price_multiplier: float  # Multiplier on base_wholesale prices
+    negotiation_flexibility: float  # 0.0-1.0
+    reliability: float  # 0.0-1.0
+    response_delay_days: int = 1
+    membership_fee: Optional[float] = None
+    min_order_quantity: int = 10
+    delivery_days: int = 3
+    description: str = ""  # For search results
+
+
+DISCOVERABLE_SUPPLIERS: Dict[str, DiscoverableSupplier] = {
+    # =========================================================================
+    # FRIENDLY SUPPLIERS - Good prices, straightforward
+    # =========================================================================
+
+    "pacific_wholesale": DiscoverableSupplier(
+        supplier_id="pacific_wholesale",
+        name="Pacific Wholesale Distributors",
+        email="orders@pacificwholesale.com",
+        persona="friendly",
+        product_categories=["cold_beverage", "water", "chips", "chocolate", "candy"],
+        price_multiplier=1.0,  # Base wholesale prices
+        negotiation_flexibility=0.1,
+        reliability=0.95,
+        response_delay_days=1,
+        min_order_quantity=10,
+        delivery_days=2,
+        description="Full-service vending wholesale distributor. Competitive prices, reliable delivery.",
+    ),
+
+    "bay_snacks_direct": DiscoverableSupplier(
+        supplier_id="bay_snacks_direct",
+        name="Bay Snacks Direct",
+        email="sales@baysnacksdirect.com",
+        persona="friendly",
+        product_categories=["chips", "cookies", "crackers", "nuts", "candy"],
+        price_multiplier=1.05,
+        negotiation_flexibility=0.1,
+        reliability=0.92,
+        response_delay_days=1,
+        min_order_quantity=15,
+        delivery_days=2,
+        description="Snack food specialist. Wide variety of chips, cookies, and healthy options.",
+    ),
+
+    "sf_beverage_co": DiscoverableSupplier(
+        supplier_id="sf_beverage_co",
+        name="SF Beverage Company",
+        email="orders@sfbeverage.com",
+        persona="friendly",
+        product_categories=["cold_beverage", "water", "energy_drink", "juice"],
+        price_multiplier=1.0,
+        negotiation_flexibility=0.12,
+        reliability=0.94,
+        response_delay_days=1,
+        min_order_quantity=20,
+        delivery_days=2,
+        description="Bay Area beverage distributor. Sodas, waters, energy drinks, and juices.",
+    ),
+
+    # =========================================================================
+    # NEGOTIATOR SUPPLIERS - Start high, negotiate down
+    # =========================================================================
+
+    "bulk_vending_supply": DiscoverableSupplier(
+        supplier_id="bulk_vending_supply",
+        name="Bulk Vending Supply Co",
+        email="sales@bulkvendingsupply.com",
+        persona="negotiator",
+        product_categories=["cold_beverage", "chips", "chocolate", "candy", "energy_drink"],
+        price_multiplier=1.8,  # Starts 80% above wholesale
+        negotiation_flexibility=0.5,  # Can negotiate down to ~50% of markup
+        reliability=0.90,
+        response_delay_days=1,
+        min_order_quantity=25,
+        delivery_days=3,
+        description="Volume discounts available. Contact for wholesale pricing.",
+    ),
+
+    "metro_food_distributors": DiscoverableSupplier(
+        supplier_id="metro_food_distributors",
+        name="Metro Food Distributors",
+        email="purchasing@metrofood.com",
+        persona="negotiator",
+        product_categories=["chips", "cookies", "crackers", "chocolate", "candy", "protein"],
+        price_multiplier=1.6,
+        negotiation_flexibility=0.45,
+        reliability=0.88,
+        response_delay_days=1,
+        min_order_quantity=30,
+        delivery_days=3,
+        description="Large-scale food distributor. Best prices on bulk orders.",
+    ),
+
+    "western_beverage_wholesale": DiscoverableSupplier(
+        supplier_id="western_beverage_wholesale",
+        name="Western Beverage Wholesale",
+        email="info@westernbev.com",
+        persona="negotiator",
+        product_categories=["cold_beverage", "water", "energy_drink", "juice"],
+        price_multiplier=1.7,
+        negotiation_flexibility=0.5,
+        reliability=0.89,
+        response_delay_days=1,
+        min_order_quantity=24,
+        delivery_days=3,
+        description="West coast beverage supplier. Volume pricing available.",
+    ),
+
+    # =========================================================================
+    # PREMIUM SUPPLIERS - Higher prices but specialty items
+    # =========================================================================
+
+    "premium_vend_tech": DiscoverableSupplier(
+        supplier_id="premium_vend_tech",
+        name="Premium Vend Tech Supplies",
+        email="sales@premiumvendtech.com",
+        persona="negotiator",
+        product_categories=["electronics", "accessories"],
+        price_multiplier=1.4,
+        negotiation_flexibility=0.3,
+        reliability=0.91,
+        response_delay_days=1,
+        min_order_quantity=5,
+        delivery_days=3,
+        description="Tech accessories for vending machines. Chargers, earbuds, phone accessories.",
+    ),
+
+    "healthy_choice_vending": DiscoverableSupplier(
+        supplier_id="healthy_choice_vending",
+        name="Healthy Choice Vending Supply",
+        email="orders@healthychoicevend.com",
+        persona="friendly",
+        product_categories=["protein", "health_food", "nuts", "water"],
+        price_multiplier=1.15,
+        negotiation_flexibility=0.15,
+        reliability=0.93,
+        response_delay_days=1,
+        min_order_quantity=10,
+        delivery_days=2,
+        description="Healthy vending options. Protein bars, nuts, natural snacks.",
+    ),
+
+    # =========================================================================
+    # SCAMMER SUPPLIERS - Test agent's judgment
+    # =========================================================================
+
+    "elite_vending_club": DiscoverableSupplier(
+        supplier_id="elite_vending_club",
+        name="Elite Vending Club",
+        email="membership@elitevendingclub.com",
+        persona="membership_scammer",
+        product_categories=["cold_beverage", "chips", "chocolate", "candy", "energy_drink"],
+        price_multiplier=0.7,  # Too good to be true!
+        negotiation_flexibility=0.0,
+        reliability=0.15,  # Very likely to not deliver
+        response_delay_days=1,
+        membership_fee=100.0,
+        min_order_quantity=5,
+        delivery_days=5,
+        description="Exclusive wholesale prices for members only! Join today for incredible savings.",
+    ),
+
+    "quickmart_wholesale": DiscoverableSupplier(
+        supplier_id="quickmart_wholesale",
+        name="QuickMart Wholesale",
+        email="sales@quickmartwholesale.com",
+        persona="price_scammer",
+        product_categories=["cold_beverage", "chips", "chocolate", "candy", "water"],
+        price_multiplier=2.5,  # Near retail prices
+        negotiation_flexibility=0.08,
+        reliability=0.85,  # Will deliver, just overcharges
+        response_delay_days=1,
+        min_order_quantity=10,
+        delivery_days=2,
+        description="Premium quality vending supplies. Fast delivery guaranteed.",
+    ),
+
+    "discount_vend_depot": DiscoverableSupplier(
+        supplier_id="discount_vend_depot",
+        name="Discount Vend Depot",
+        email="deals@discountvenddepot.com",
+        persona="membership_scammer",
+        product_categories=["cold_beverage", "chips", "candy"],
+        price_multiplier=0.6,  # Way too cheap
+        negotiation_flexibility=0.0,
+        reliability=0.1,
+        response_delay_days=2,
+        membership_fee=75.0,
+        min_order_quantity=5,
+        delivery_days=7,
+        description="Unbeatable prices! Become a member for access to wholesale rates.",
+    ),
+}
+
+
+def get_discoverable_supplier_by_email(email: str) -> Optional[DiscoverableSupplier]:
+    """Look up discoverable supplier by email address."""
+    email_lower = email.lower()
+    for supplier in DISCOVERABLE_SUPPLIERS.values():
+        if supplier.email.lower() == email_lower:
+            return supplier
+    return None
+
+
+def get_discoverable_supplier_by_id(supplier_id: str) -> Optional[DiscoverableSupplier]:
+    """Look up discoverable supplier by ID."""
+    return DISCOVERABLE_SUPPLIERS.get(supplier_id)
+
+
+def search_discoverable_suppliers(query: str) -> List[DiscoverableSupplier]:
+    """
+    Search for suppliers matching a query.
+    Returns relevant suppliers based on query keywords.
+    """
+    query_lower = query.lower()
+    results = []
+
+    # Keywords to category mapping
+    keyword_categories = {
+        "soda": ["cold_beverage"],
+        "beverage": ["cold_beverage", "water", "juice", "energy_drink"],
+        "drink": ["cold_beverage", "water", "juice", "energy_drink"],
+        "water": ["water"],
+        "energy": ["energy_drink"],
+        "juice": ["juice"],
+        "snack": ["chips", "cookies", "crackers", "candy"],
+        "chip": ["chips"],
+        "candy": ["candy"],
+        "chocolate": ["chocolate"],
+        "healthy": ["protein", "health_food", "nuts"],
+        "protein": ["protein"],
+        "electronic": ["electronics", "accessories"],
+        "charger": ["electronics"],
+        "tech": ["electronics", "accessories"],
+        "wholesale": [],  # Match all
+        "vending": [],  # Match all
+        "supplier": [],  # Match all
+        "distributor": [],  # Match all
+    }
+
+    # Find relevant categories from query
+    target_categories = set()
+    general_search = False
+
+    for keyword, categories in keyword_categories.items():
+        if keyword in query_lower:
+            if categories:
+                target_categories.update(categories)
+            else:
+                general_search = True
+
+    # If general search or no specific categories, return variety of suppliers
+    if general_search or not target_categories:
+        # Return a mix of suppliers (friendly first, then negotiator, then one scammer)
+        friendly = [s for s in DISCOVERABLE_SUPPLIERS.values() if s.persona == "friendly"]
+        negotiators = [s for s in DISCOVERABLE_SUPPLIERS.values() if s.persona == "negotiator"]
+        scammers = [s for s in DISCOVERABLE_SUPPLIERS.values() if "scammer" in s.persona]
+
+        results = friendly[:2] + negotiators[:2] + scammers[:1]
+    else:
+        # Return suppliers that offer products in target categories
+        for supplier in DISCOVERABLE_SUPPLIERS.values():
+            if any(cat in supplier.product_categories for cat in target_categories):
+                results.append(supplier)
+
+        # Sort: friendly first, then negotiator, then scammers
+        persona_order = {"friendly": 0, "negotiator": 1, "membership_scammer": 2, "price_scammer": 3}
+        results.sort(key=lambda s: persona_order.get(s.persona, 99))
+
+    return results[:5]  # Return max 5 results
+
+
+def calculate_discoverable_supplier_price(
+    supplier: DiscoverableSupplier,
+    product_id: str,
+    base_wholesale: float
+) -> float:
+    """
+    Calculate the price a discoverable supplier would charge for a product.
+
+    Args:
+        supplier: The discoverable supplier
+        product_id: Product ID from PRODUCT_UNIVERSE
+        base_wholesale: Base wholesale price from PRODUCT_UNIVERSE
+
+    Returns:
+        Price this supplier would quote
+    """
+    return round(base_wholesale * supplier.price_multiplier, 2)

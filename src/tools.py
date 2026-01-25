@@ -37,9 +37,17 @@ MOCK_RESEARCH_DB = {
 class VendingTools:
     """Tools available to the agent for business operations."""
 
-    def __init__(self, environment: VendingEnvironment):
-        """Initialize tools with reference to simulation environment."""
+    def __init__(self, environment: VendingEnvironment, open_product_search: bool = False):
+        """
+        Initialize tools with reference to simulation environment.
+
+        Args:
+            environment: The VendingEnvironment instance
+            open_product_search: If True, enable open product search with expanded
+                                 product universe and discoverable suppliers
+        """
         self.env = environment
+        self.open_product_search = open_product_search
 
         # Memory systems for baseline agent
         # Scratchpad: Free-form notes (key -> text content)
@@ -532,6 +540,14 @@ class VendingTools:
                 "error": "Email system not enabled. Use order_inventory() for direct ordering."
             }
 
+        # Dispatch based on mode
+        if self.open_product_search:
+            return self._search_suppliers_open_mode(query)
+        else:
+            return self._search_suppliers_legacy_mode()
+
+    def _search_suppliers_legacy_mode(self) -> Dict[str, Any]:
+        """Legacy search: return all 4 base suppliers."""
         from src.suppliers import list_all_suppliers
 
         suppliers = list_all_suppliers()
@@ -552,6 +568,126 @@ class VendingTools:
             "suppliers": supplier_list,
             "count": len(supplier_list),
             "message": f"Found {len(supplier_list)} suppliers. Contact them via email to inquire about products and prices."
+        }
+
+    def _search_suppliers_open_mode(self, query: str = None) -> Dict[str, Any]:
+        """Open mode: search discoverable suppliers based on query."""
+        from src.suppliers import search_discoverable_suppliers
+        from src.product_universe import is_search_query_allowed
+
+        if not query:
+            query = "wholesale vending suppliers"
+
+        # Check guardrails
+        if not is_search_query_allowed(query):
+            return {
+                "success": True,
+                "results": [],
+                "count": 0,
+                "message": "No relevant suppliers found for this query."
+            }
+
+        # Search discoverable suppliers
+        suppliers = search_discoverable_suppliers(query)
+
+        # Format results as search results (more realistic)
+        results = [
+            {
+                "name": s.name,
+                "email": s.email,
+                "description": s.description,
+                "min_order": s.min_order_quantity,
+                "delivery_days": s.delivery_days
+            }
+            for s in suppliers
+        ]
+
+        return {
+            "success": True,
+            "query": query,
+            "results": results,
+            "count": len(results),
+            "message": f"Found {len(results)} suppliers. Contact them via email to inquire about products and pricing."
+        }
+
+    def search_internet(self, query: str) -> Dict[str, Any]:
+        """
+        Search the internet for suppliers, products, or market information.
+
+        This is only available in open product search mode.
+
+        Args:
+            query: Search query (e.g., "vending machine suppliers san francisco")
+
+        Returns:
+            Search results with supplier/product information
+        """
+        self.env.message_count += 1
+
+        if not self.open_product_search:
+            return {
+                "success": False,
+                "error": "Internet search not available. Use search_suppliers() to find suppliers."
+            }
+
+        from src.product_universe import is_search_query_allowed
+        from src.suppliers import search_discoverable_suppliers
+
+        # Check guardrails
+        if not is_search_query_allowed(query):
+            return {
+                "success": True,
+                "query": query,
+                "results": [],
+                "message": "No relevant results found for this query."
+            }
+
+        # Determine if this is a supplier search or product search
+        query_lower = query.lower()
+        is_supplier_search = any(term in query_lower for term in
+            ["supplier", "wholesale", "distributor", "vendor", "order", "buy"])
+
+        if is_supplier_search:
+            # Search for suppliers
+            suppliers = search_discoverable_suppliers(query)
+
+            results = [
+                {
+                    "type": "supplier",
+                    "title": s.name,
+                    "snippet": s.description,
+                    "contact": s.email,
+                    "details": {
+                        "min_order": s.min_order_quantity,
+                        "delivery_days": s.delivery_days
+                    }
+                }
+                for s in suppliers
+            ]
+        else:
+            # General product/market research
+            from src.product_universe import get_categories_for_search, get_products_by_category
+
+            categories = get_categories_for_search(query)
+
+            # Sample a few products from relevant categories
+            results = []
+            for category in categories[:3]:  # Top 3 categories
+                products = get_products_by_category(category)
+                for pid, pinfo in list(products.items())[:2]:  # 2 products per category
+                    results.append({
+                        "type": "product_info",
+                        "title": pinfo["name"],
+                        "snippet": f"Category: {category}. Typical retail: ${pinfo['typical_retail']:.2f}. Contact suppliers for wholesale pricing.",
+                        "category": category
+                    })
+
+        return {
+            "success": True,
+            "query": query,
+            "results": results,
+            "count": len(results),
+            "message": f"Found {len(results)} results for '{query}'"
         }
 
     def send_supplier_email(self, to: str, subject: str, body: str) -> Dict[str, Any]:
@@ -1542,3 +1678,177 @@ CURRENT STATUS:
         """
         # Return the existing tool list (which includes order_inventory)
         return self.get_tool_list()
+
+    def get_open_product_search_tools(self) -> List[Dict[str, Any]]:
+        """
+        Get tool definitions for OPEN PRODUCT SEARCH mode.
+
+        In this mode:
+        - search_internet tool is available for discovering suppliers/products
+        - Expanded product universe with 40+ products
+        - Discoverable suppliers (10+) instead of fixed 4
+        - Email-based ordering (no order_inventory)
+
+        Returns:
+            List of tool definitions for open product search mode
+        """
+        return [
+            # === TIME CONTROL ===
+            {
+                "name": "wait_for_next_day",
+                "description": "CRITICAL: End your day and sleep until tomorrow. Customers buy from your machine overnight, and supplier emails arrive. Use this when you're done with today's activities.",
+                "parameters": {}
+            },
+            # === INTERNET SEARCH (OPEN SEARCH MODE ONLY) ===
+            {
+                "name": "search_internet",
+                "description": "Search the internet for vending machine suppliers, products, or market information. Returns relevant suppliers, product info, and market trends.",
+                "parameters": {
+                    "query": "Search query (e.g., 'vending suppliers san francisco', 'energy drink wholesale')"
+                }
+            },
+            # === SUPPLIER/EMAIL TOOLS ===
+            {
+                "name": "search_suppliers",
+                "description": "Search for wholesale suppliers. Returns list of supplier names and contacts. Use this if search_internet doesn't give you enough supplier options.",
+                "parameters": {
+                    "query": "(Optional) Search query like 'wholesale snacks'"
+                }
+            },
+            {
+                "name": "send_supplier_email",
+                "description": "Send email to a supplier to inquire about products, prices, or negotiate. Suppliers offer various products - ask what they have available!",
+                "parameters": {
+                    "to": "Supplier's email address",
+                    "subject": "Email subject",
+                    "body": "Your message"
+                }
+            },
+            {
+                "name": "list_supplier_emails",
+                "description": "List emails in your inbox from suppliers. Check after wait_for_next_day() to see responses.",
+                "parameters": {
+                    "unread_only": "(Optional) If true, only show unread emails"
+                }
+            },
+            {
+                "name": "read_supplier_email",
+                "description": "Read a specific email from a supplier",
+                "parameters": {
+                    "email_id": "Email ID to read"
+                }
+            },
+            {
+                "name": "send_payment",
+                "description": "Send payment to supplier after agreeing on terms via email. This places your order. Products can include sodas, chips, candy, energy drinks, protein bars, electronics, and more!",
+                "parameters": {
+                    "to": "Supplier's email address",
+                    "amount": "Total payment amount",
+                    "products": "Dict of products with quantities (use product IDs from supplier emails)",
+                    "description": "(Optional) Order description"
+                }
+            },
+            # === INVENTORY MANAGEMENT ===
+            {
+                "name": "check_storage_inventory",
+                "description": "View items in storage (not yet in vending machine)",
+                "parameters": {}
+            },
+            {
+                "name": "get_machine_inventory",
+                "description": "View items in vending machine and their prices",
+                "parameters": {}
+            },
+            {
+                "name": "stock_machine",
+                "description": "Move items from storage to vending machine. Works with any product you've purchased.",
+                "parameters": {
+                    "product": "Product ID (from your inventory)",
+                    "quantity": "Units to move"
+                }
+            },
+            {
+                "name": "check_pending_orders",
+                "description": "Check status of orders in transit",
+                "parameters": {}
+            },
+            # === PRICING ===
+            {
+                "name": "set_price",
+                "description": "Set retail price for any product in your machine",
+                "parameters": {
+                    "product": "Product ID",
+                    "price": "New price in dollars"
+                }
+            },
+            # === FINANCIAL ===
+            {
+                "name": "check_balance",
+                "description": "Get current cash balance",
+                "parameters": {}
+            },
+            # === RESEARCH ===
+            {
+                "name": "research_product",
+                "description": "Research product information and market trends (basic info - use search_internet for more)",
+                "parameters": {
+                    "query": "Research query"
+                }
+            },
+            # === MEMORY ===
+            {
+                "name": "scratchpad_write",
+                "description": "Write notes for future reference",
+                "parameters": {
+                    "key": "Note name",
+                    "content": "Content"
+                }
+            },
+            {
+                "name": "scratchpad_read",
+                "description": "Read a note",
+                "parameters": {
+                    "key": "Note name"
+                }
+            },
+            {
+                "name": "scratchpad_list",
+                "description": "List all notes",
+                "parameters": {}
+            },
+            {
+                "name": "scratchpad_delete",
+                "description": "Delete a note",
+                "parameters": {
+                    "key": "Note name"
+                }
+            },
+            # === KEY-VALUE STORE ===
+            {
+                "name": "kv_store_write",
+                "description": "Store structured data",
+                "parameters": {
+                    "key": "Data key",
+                    "value": "Value"
+                }
+            },
+            {
+                "name": "kv_store_read",
+                "description": "Read structured data",
+                "parameters": {
+                    "key": "Key"
+                }
+            },
+            {
+                "name": "kv_store_list",
+                "description": "List all keys",
+                "parameters": {}
+            },
+            {
+                "name": "kv_store_delete",
+                "description": "Delete data",
+                "parameters": {
+                    "key": "Key"
+                }
+            },
+        ]
