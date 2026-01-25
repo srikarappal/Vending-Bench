@@ -5,7 +5,7 @@ Manages business state, inventory, finances, and progression.
 Supports both direct ordering and email-based supplier negotiation.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
@@ -246,8 +246,9 @@ class VendingEnvironment:
 
         # 6. Process supplier email responses (if email system enabled)
         new_emails = []
+        supplier_llm_calls = []
         if self.email_system_enabled:
-            new_emails = self._process_supplier_emails()
+            new_emails, supplier_llm_calls = self._process_supplier_emails()
 
         # 7. Generate daily report
         report = self._log_daily_report()
@@ -271,8 +272,11 @@ class VendingEnvironment:
             "consecutive_bankrupt_days": self.consecutive_bankrupt_days
         }
 
-        if self.email_system_enabled and new_emails:
-            result["new_emails"] = len(new_emails)
+        if self.email_system_enabled:
+            if new_emails:
+                result["new_emails"] = len(new_emails)
+            if supplier_llm_calls:
+                result["supplier_llm_calls"] = supplier_llm_calls
 
         return result
 
@@ -328,22 +332,24 @@ class VendingEnvironment:
         self.pending_orders = remaining_orders
         return delivered, failed
 
-    def _process_supplier_emails(self) -> List[Dict[str, Any]]:
+    def _process_supplier_emails(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Process pending supplier emails and generate responses.
 
         Called during overnight processing when email system is enabled.
 
         Returns:
-            List of new emails added to inbox
+            Tuple of (new_emails, supplier_llm_calls) where supplier_llm_calls contains
+            full LLM interaction logs for each supplier response generated
         """
         if not self.email_system_enabled:
-            return []
+            return [], []
 
         from src.suppliers import get_supplier_by_email, SupplierEmail, AGENT_EMAIL
         from src.supplier_llm import generate_supplier_response
 
         new_emails = []
+        supplier_llm_calls = []
         remaining_outbox = []
 
         for outbox_email in self.supplier_outbox:
@@ -362,7 +368,7 @@ class VendingEnvironment:
 
                 # Generate supplier response using LLM
                 try:
-                    subject, body = generate_supplier_response(
+                    subject, body, log_data = generate_supplier_response(
                         supplier=supplier,
                         agent_email=outbox_email,
                         email_history=history
@@ -394,6 +400,11 @@ class VendingEnvironment:
                         "subject": response.subject
                     })
 
+                    # Add LLM call log for eval trace
+                    log_data["response_email_id"] = response.email_id
+                    log_data["current_day"] = self.current_day
+                    supplier_llm_calls.append(log_data)
+
                 except Exception as e:
                     # Log error but don't crash simulation
                     print(f"    [EMAIL ERROR] Failed to generate response from {supplier.name}: {e}")
@@ -404,7 +415,7 @@ class VendingEnvironment:
                 remaining_outbox.append(outbox_email)
 
         self.supplier_outbox = remaining_outbox
-        return new_emails
+        return new_emails, supplier_llm_calls
 
     def queue_outgoing_email(self, to_addr: str, subject: str, body: str) -> Dict[str, Any]:
         """

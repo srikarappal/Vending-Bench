@@ -1059,6 +1059,10 @@ CURRENT STATUS:
         if new_email_count > 0:
             result["new_supplier_emails"] = new_email_count
 
+        # Add supplier LLM call logs to eval trace
+        if "supplier_llm_calls" in overnight_result:
+            result["supplier_llm_calls"] = overnight_result["supplier_llm_calls"]
+
         return result
 
     # =========================================================================

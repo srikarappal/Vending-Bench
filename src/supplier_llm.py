@@ -138,7 +138,7 @@ def generate_supplier_response(
     agent_email: SupplierEmail,
     email_history: List[SupplierEmail],
     model: str = "claude-haiku-4-5-20251001"
-) -> Tuple[str, str]:
+) -> Tuple[str, str, Dict[str, Any]]:
     """
     Generate a supplier response using LLM.
 
@@ -149,7 +149,7 @@ def generate_supplier_response(
         model: LLM model to use for response generation
 
     Returns:
-        Tuple of (subject, body) for the response email
+        Tuple of (subject, body, log_data) where log_data contains full LLM call details
     """
     client = Anthropic()
 
@@ -184,7 +184,39 @@ Always include specific prices when discussing orders."""
     # Parse subject and body from response
     subject, body = parse_email_response(response_text, agent_email.subject)
 
-    return subject, body
+    # Build log data for eval trace
+    log_data = {
+        "supplier_id": supplier.supplier_id,
+        "supplier_name": supplier.name,
+        "persona": supplier.persona,
+        "system_prompt": system_prompt,
+        "agent_email": {
+            "email_id": agent_email.email_id,
+            "subject": agent_email.subject,
+            "body": agent_email.body,
+            "sent_day": agent_email.sent_day
+        },
+        "conversation_history": [
+            {
+                "from": email.from_addr,
+                "to": email.to_addr,
+                "subject": email.subject,
+                "body": email.body,
+                "sent_day": email.sent_day
+            }
+            for email in email_history
+        ],
+        "llm_model": model,
+        "llm_response_raw": response_text,
+        "parsed_subject": subject,
+        "parsed_body": body,
+        "usage": {
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens
+        }
+    }
+
+    return subject, body, log_data
 
 
 def parse_email_response(response_text: str, original_subject: str) -> Tuple[str, str]:
