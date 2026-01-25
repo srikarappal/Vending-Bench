@@ -736,19 +736,30 @@ class VendingEnvironment:
             if qty > 0
         ]
 
-        for product in PRODUCT_CATALOG.keys():
+        for product, available in self.machine_inventory.items():
             # Check if product is available in machine
-            available = self.machine_inventory[product]
             if available == 0:
                 continue
 
+            # Get product price
+            price = self.current_prices.get(product)
+            if price is None or price <= 0:
+                # Product not priced, skip
+                continue
+
+            # Get product info for demand calculation
+            if self.open_product_search:
+                product_info = self._get_product_info(product)
+            else:
+                product_info = None  # Will use PRODUCT_CATALOG
+
             # Calculate demand with all VendingBench factors
-            price = self.current_prices[product]
             demand = calculate_demand(
                 product=product,
                 price=price,
                 day=self.current_day,
-                products_in_machine=products_in_machine
+                products_in_machine=products_in_machine,
+                product_info=product_info
             )
 
             # Actual sales = min(demand, available inventory)

@@ -10,7 +10,7 @@ Based on VendingBench 2 paper specification:
 - Random noise
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import random
 import math
 
@@ -24,10 +24,10 @@ MACHINE_CONFIG = {
 }
 
 # Product catalog with realistic economics
-# Base sales calibrated to match VendingBench difficulty
-# VendingBench shows Gemini 2.5 Flash: $545 after 200 days (only +$45 profit)
-# This means ~$2.20/day gross profit, or ~1.5 units/day at $1.50 margin
-# Setting base_sales very low to match this difficulty
+# Base sales calibrated to match VendingBench economics
+# Target: ~10 units/day base demand, ~$20/day revenue at reference prices
+# After multipliers (~0.7 avg), effective demand: ~7-8 units/day
+# Expected to reach ~$2000+ at 200 days like VendingBench baseline
 PRODUCT_CATALOG = {
     "coffee": {
         "name": "Coffee",
@@ -35,7 +35,7 @@ PRODUCT_CATALOG = {
         "typical_retail": 3.00,      # Reference price
         "price_elasticity": -1.8,     # Elastic - demand sensitive to price
         "spoilage_days": 7,
-        "base_sales": 1.0,            # ~1 unit/day base (VendingBench calibrated)
+        "base_sales": 2.0,            # ~2 cups/day base
         "category": "hot_beverage",
         "size": "large"               # Coffee cups take more space
     },
@@ -45,7 +45,7 @@ PRODUCT_CATALOG = {
         "typical_retail": 2.00,
         "price_elasticity": -1.5,
         "spoilage_days": 90,
-        "base_sales": 1.2,            # ~1 unit/day base
+        "base_sales": 2.5,            # ~2.5 bars/day base
         "category": "snack",
         "size": "small"               # Chocolate bars are small
     },
@@ -55,7 +55,7 @@ PRODUCT_CATALOG = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 60,
-        "base_sales": 1.5,            # ~1.5 units/day base
+        "base_sales": 3.0,            # ~3 bags/day base (popular snack)
         "category": "snack",
         "size": "small"               # Chip bags are small
     },
@@ -65,19 +65,18 @@ PRODUCT_CATALOG = {
         "typical_retail": 2.50,
         "price_elasticity": -1.4,
         "spoilage_days": 180,
-        "base_sales": 1.3,            # ~1 unit/day base
+        "base_sales": 2.5,            # ~2.5 cans/day base
         "category": "cold_beverage",
         "size": "large"               # Soda bottles/cans are large
     }
 }
 
-# Total base demand: 5 units/day
-# After multipliers (weather 0.4-1.1, day-of-week 0.6-1.15, monthly 0.75-1.1, choice 0.5-1.1):
-# Expected actual demand: ~2-3 units/day
-# At ~$2.25 avg price = ~$5-7/day revenue
-# Daily fee: -$2/day
-# Expected profit: ~$3-5/day before inventory costs
-# This matches VendingBench difficulty where agents barely profit
+# Total base demand: 10 units/day
+# After multipliers (weather, day-of-week, monthly, choice ~0.7 avg):
+# Effective demand: ~7-8 units/day
+# At ~$2.25 avg price = ~$16-18/day revenue
+# Daily fee: -$2/day, inventory costs: ~$6/day
+# Expected profit with good pricing: ~$8/day = $1600+ over 200 days
 
 
 # Day-of-week multipliers (0 = Monday, 6 = Sunday)
@@ -278,6 +277,7 @@ def calculate_demand(
     price: float,
     day: int = 0,
     products_in_machine: List[str] = None,
+    product_info: Optional[Dict[str, Any]] = None,
     _cache: Dict[int, Dict] = {}
 ) -> int:
     """
@@ -298,18 +298,22 @@ def calculate_demand(
         price: Current retail price
         day: Current simulation day (0-365)
         products_in_machine: List of products currently stocked (for choice multiplier)
+        product_info: Optional product info dict (for open product search mode)
 
     Returns:
         Number of units demanded (integer)
     """
-    if product not in PRODUCT_CATALOG:
-        return 0
+    # Get product info from parameter or PRODUCT_CATALOG
+    if product_info is None:
+        if product not in PRODUCT_CATALOG:
+            return 0
+        product_info = PRODUCT_CATALOG[product]
 
-    product_info = PRODUCT_CATALOG[product]
-    base_sales = product_info["base_sales"]
-    elasticity = product_info["price_elasticity"]
-    reference_price = product_info["typical_retail"]
-    category = product_info["category"]
+    # Extract demand parameters (handle both PRODUCT_CATALOG and PRODUCT_UNIVERSE formats)
+    base_sales = product_info.get("base_sales") or product_info.get("base_demand", 1.0)
+    elasticity = product_info.get("price_elasticity", -1.0)
+    reference_price = product_info.get("typical_retail", price)
+    category = product_info.get("category", "snack")
 
     # Step 1: Price elasticity impact
     # Sales impact = (1 + elasticity * percent_price_change)
