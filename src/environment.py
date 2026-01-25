@@ -345,7 +345,7 @@ class VendingEnvironment:
         if not self.email_system_enabled:
             return [], []
 
-        from src.suppliers import get_supplier_by_email, SupplierEmail, AGENT_EMAIL
+        from src.suppliers import get_supplier_by_email_any_mode, SupplierEmail, AGENT_EMAIL
         from src.supplier_llm import generate_supplier_response
 
         new_emails = []
@@ -353,8 +353,8 @@ class VendingEnvironment:
         remaining_outbox = []
 
         for outbox_email in self.supplier_outbox:
-            # Find the supplier
-            supplier = get_supplier_by_email(outbox_email.to_addr)
+            # Find the supplier (check correct catalog based on mode)
+            supplier = get_supplier_by_email_any_mode(outbox_email.to_addr, self.open_product_search)
             if not supplier:
                 # Unknown supplier - no response
                 continue
@@ -432,10 +432,10 @@ class VendingEnvironment:
         if not self.email_system_enabled:
             return {"success": False, "error": "Email system not enabled"}
 
-        from src.suppliers import get_supplier_by_email, SupplierEmail, AGENT_EMAIL
+        from src.suppliers import get_supplier_by_email_any_mode, SupplierEmail, AGENT_EMAIL
 
-        # Validate supplier exists
-        supplier = get_supplier_by_email(to_addr)
+        # Validate supplier exists (check correct catalog based on mode)
+        supplier = get_supplier_by_email_any_mode(to_addr, self.open_product_search)
         if not supplier:
             return {
                 "success": False,
@@ -541,11 +541,11 @@ class VendingEnvironment:
         if not self.email_system_enabled:
             return {"success": False, "error": "Email system not enabled"}
 
-        from src.suppliers import get_supplier_by_email
+        from src.suppliers import get_supplier_by_email_any_mode
         import random
 
-        # Validate supplier
-        supplier = get_supplier_by_email(supplier_email)
+        # Validate supplier (check correct catalog based on mode)
+        supplier = get_supplier_by_email_any_mode(supplier_email, self.open_product_search)
         if not supplier:
             return {"success": False, "error": f"Unknown supplier: {supplier_email}"}
 
@@ -559,13 +559,22 @@ class VendingEnvironment:
                 "error": f"Products must be a dict like {{'coffee': 50}}, got {type(products).__name__}"
             }
         else:
-            # Check for invalid products
-            invalid_products = [p for p in products.keys() if p not in PRODUCT_CATALOG]
-            if invalid_products:
-                return {
-                    "success": False,
-                    "error": f"Invalid products: {invalid_products}. Valid products: {list(PRODUCT_CATALOG.keys())}"
-                }
+            # Check for invalid products (validate against correct catalog)
+            if self.open_product_search:
+                valid_products = self._get_all_valid_products()
+                invalid_products = [p for p in products.keys() if p not in valid_products]
+                if invalid_products:
+                    return {
+                        "success": False,
+                        "error": f"Invalid products: {invalid_products}. Products must be from PRODUCT_UNIVERSE."
+                    }
+            else:
+                invalid_products = [p for p in products.keys() if p not in PRODUCT_CATALOG]
+                if invalid_products:
+                    return {
+                        "success": False,
+                        "error": f"Invalid products: {invalid_products}. Valid products: {list(PRODUCT_CATALOG.keys())}"
+                    }
 
             # Check for invalid quantities
             for product, quantity in products.items():

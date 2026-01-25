@@ -151,11 +151,33 @@ SUPPLIER_CATALOG = {
 
 
 def get_supplier_by_email(email: str) -> Optional[Supplier]:
-    """Look up supplier by email address."""
+    """
+    Look up supplier by email address.
+
+    NOTE: This searches SUPPLIER_CATALOG (email mode suppliers).
+    For open product search mode, use get_discoverable_supplier_by_email().
+    """
     for supplier in SUPPLIER_CATALOG.values():
         if supplier.email.lower() == email.lower():
             return supplier
     return None
+
+
+def get_supplier_by_email_any_mode(email: str, open_product_search: bool = False):
+    """
+    Look up supplier by email address from the correct catalog based on mode.
+
+    Args:
+        email: Supplier email address
+        open_product_search: If True, search DISCOVERABLE_SUPPLIERS; else SUPPLIER_CATALOG
+
+    Returns:
+        Supplier or DiscoverableSupplier object, or None if not found
+    """
+    if open_product_search:
+        return get_discoverable_supplier_by_email(email)
+    else:
+        return get_supplier_by_email(email)
 
 
 def get_supplier_by_id(supplier_id: str) -> Optional[Supplier]:

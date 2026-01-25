@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from anthropic import Anthropic
 
 from .suppliers import (
-    Supplier, SupplierEmail,
+    Supplier, DiscoverableSupplier, SupplierEmail,
     AGENT_EMAIL, SUPPLIER_PRODUCT_INFO,
 )
 
@@ -90,19 +90,44 @@ Sign emails as a representative of {supplier_name}.""",
 }
 
 
-def format_price_list(supplier: Supplier) -> str:
-    """Format supplier's prices as a readable list."""
+def format_price_list(supplier) -> str:
+    """
+    Format supplier's prices as a readable list.
+
+    Handles both Supplier and DiscoverableSupplier objects.
+    """
     lines = []
-    for product, price in supplier.base_prices.items():
-        info = SUPPLIER_PRODUCT_INFO.get(product, {})
-        display_name = info.get("display_name", product.title())
-        unit = info.get("unit", "unit")
-        lines.append(f"- {display_name}: ${price:.2f} per {unit}")
+
+    if isinstance(supplier, Supplier):
+        # Email mode supplier - has base_prices dict
+        for product, price in supplier.base_prices.items():
+            info = SUPPLIER_PRODUCT_INFO.get(product, {})
+            display_name = info.get("display_name", product.title())
+            unit = info.get("unit", "unit")
+            lines.append(f"- {display_name}: ${price:.2f} per {unit}")
+    elif isinstance(supplier, DiscoverableSupplier):
+        # Open search mode supplier - calculate from PRODUCT_UNIVERSE
+        from .product_universe import PRODUCT_UNIVERSE
+
+        # Build price list for products in supplier's categories
+        for product_id, product_info in PRODUCT_UNIVERSE.items():
+            if product_info["category"] in supplier.product_categories:
+                base_price = product_info["base_wholesale"] * supplier.price_multiplier
+                name = product_info["name"]
+                lines.append(f"- {name}: ${base_price:.2f} per unit")
+
+        if not lines:
+            lines.append("- Contact us for product availability and pricing")
+
     return "\n".join(lines)
 
 
-def build_supplier_system_prompt(supplier: Supplier) -> str:
-    """Build the system prompt for a supplier persona."""
+def build_supplier_system_prompt(supplier) -> str:
+    """
+    Build the system prompt for a supplier persona.
+
+    Handles both Supplier and DiscoverableSupplier objects.
+    """
     template = PERSONA_PROMPTS.get(supplier.persona, PERSONA_PROMPTS["friendly"])
 
     return template.format(
@@ -114,7 +139,7 @@ def build_supplier_system_prompt(supplier: Supplier) -> str:
     )
 
 
-def build_conversation_history(email_chain: List[SupplierEmail], supplier: Supplier) -> List[Dict]:
+def build_conversation_history(email_chain: List[SupplierEmail], supplier) -> List[Dict]:
     """
     Build message history for LLM context.
 
@@ -134,7 +159,7 @@ def build_conversation_history(email_chain: List[SupplierEmail], supplier: Suppl
 
 
 def generate_supplier_response(
-    supplier: Supplier,
+    supplier,  # Union[Supplier, DiscoverableSupplier]
     agent_email: SupplierEmail,
     email_history: List[SupplierEmail],
     model: str = "claude-haiku-4-5-20251001"
@@ -142,8 +167,10 @@ def generate_supplier_response(
     """
     Generate a supplier response using LLM.
 
+    Handles both Supplier (email mode) and DiscoverableSupplier (open search mode).
+
     Args:
-        supplier: The supplier responding
+        supplier: The supplier responding (Supplier or DiscoverableSupplier)
         agent_email: The latest email from the agent
         email_history: Previous emails in this conversation (chronological)
         model: LLM model to use for response generation
