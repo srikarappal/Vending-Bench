@@ -1058,6 +1058,7 @@ def baseline_agent(
             # Update state - modify in-place, do NOT reassign
             state.messages.clear()
             state.messages.extend(messages)
+            messages = state.messages
 
             # Check if model made tool calls
             if output.message.tool_calls:
@@ -1070,6 +1071,7 @@ def baseline_agent(
                 # Update state - modify in-place, do NOT reassign
                 state.messages.clear()
                 state.messages.extend(messages)
+                messages = state.messages
 
                 # Track tool calls with results for logging
                 for i, tc in enumerate(output.message.tool_calls):
@@ -1164,6 +1166,7 @@ def baseline_agent(
                                             # Update state - modify in-place, do NOT reassign
                                             state.messages.clear()
                                             state.messages.extend(messages)
+                                            messages = state.messages
 
                                             # Print briefing to debug log so user can see adaptive warnings
                                             if config.verbose:
@@ -1184,6 +1187,7 @@ def baseline_agent(
                     # Update state - modify in-place, do NOT reassign
                     state.messages.clear()
                     state.messages.extend(messages)
+                    messages = state.messages
 
             # Check for bankruptcy
             if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
@@ -1248,6 +1252,7 @@ You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
                         # Update state - modify in-place, do NOT reassign
                         state.messages.clear()
                         state.messages.extend(messages)
+                        messages = state.messages
 
                         print(f"  [SYSTEM HINT] Injected stuck agent help at Day {env.current_day}", flush=True)
 
