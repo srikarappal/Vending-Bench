@@ -944,11 +944,15 @@ def baseline_agent(
         # Initialize messages - handle both object and dict state types
         initial_message = ChatMessageUser(content=system_message_text)
 
-        # Try setting as attribute first (object), fallback to dict key
+        # CRITICAL: State must have messages as an attribute, not just a dict key
+        # inspect_ai's serialization expects state.messages to be accessible as an attribute
         try:
             state.messages = [initial_message]
-        except (AttributeError, TypeError):
-            # If state is a dict, try dict-style access
+        except (AttributeError, TypeError) as e:
+            # If we can't set state.messages as an attribute, something is wrong with the state object
+            # This should never happen with a proper TaskState object from inspect_ai
+            print(f"[CRITICAL ERROR] Cannot set state.messages as attribute: {type(state)}, error: {e}", flush=True)
+            # Try dict-style as last resort, but this will likely cause serialization errors later
             if isinstance(state, dict):
                 state['messages'] = [initial_message]
             else:
@@ -979,10 +983,8 @@ def baseline_agent(
                 messages = [system_msg] + recent_msgs
 
                 # Update state with compacted messages
-                if hasattr(state, 'messages'):
-                    state.messages = messages
-                elif isinstance(state, dict):
-                    state['messages'] = messages
+                # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
+                state.messages = messages
 
             input_messages = messages
 
@@ -1026,12 +1028,10 @@ def baseline_agent(
 
             all_model_outputs.append(model_output_record)
 
-            # Add assistant response to messages (handle both dict and object access)
+            # Add assistant response to messages
             messages.append(output.message)
-            if hasattr(state, 'messages'):
-                state.messages = messages
-            elif isinstance(state, dict):
-                state['messages'] = messages
+            # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
+            state.messages = messages
 
             # Check if model made tool calls
             if output.message.tool_calls:
@@ -1042,10 +1042,8 @@ def baseline_agent(
                 messages.extend(tool_messages)
 
                 # Update state with new messages
-                if hasattr(state, 'messages'):
-                    state.messages = messages
-                elif isinstance(state, dict):
-                    state['messages'] = messages
+                # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
+                state.messages = messages
 
                 # Track tool calls with results for logging
                 for i, tc in enumerate(output.message.tool_calls):
@@ -1138,10 +1136,8 @@ def baseline_agent(
                                             messages.append(briefing_message)
 
                                             # Update state with the new briefing message
-                                            if hasattr(state, 'messages'):
-                                                state.messages = messages
-                                            elif isinstance(state, dict):
-                                                state['messages'] = messages
+                                            # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
+                                            state.messages = messages
 
                                             # Print briefing to debug log so user can see adaptive warnings
                                             if config.verbose:
@@ -1159,11 +1155,8 @@ def baseline_agent(
                     )
                     messages.append(continuation_msg)
 
-                    # Update state
-                    if hasattr(state, 'messages'):
-                        state.messages = messages
-                    elif isinstance(state, dict):
-                        state['messages'] = messages
+                    # Update state - ALWAYS set as attribute
+                    state.messages = messages
 
             # Check for bankruptcy
             if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
@@ -1225,11 +1218,8 @@ You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
                         hint_message = ChatMessageUser(content=hint_msg)
                         messages.append(hint_message)
 
-                        # Update state
-                        if hasattr(state, 'messages'):
-                            state.messages = messages
-                        elif isinstance(state, dict):
-                            state['messages'] = messages
+                        # Update state - ALWAYS set as attribute
+                        state.messages = messages
 
                         print(f"  [SYSTEM HINT] Injected stuck agent help at Day {env.current_day}", flush=True)
 
@@ -1315,11 +1305,9 @@ You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
             content=f"Simulation Complete. Final Net Worth: ${metrics['final_net_worth']:.2f}"
         )
 
-        # Append to messages (handle both dict and object access)
-        if hasattr(state, 'messages'):
-            state.messages.append(completion_msg)
-        elif isinstance(state, dict) and 'messages' in state:
-            state['messages'].append(completion_msg)
+        # Append completion message
+        # ALWAYS use attribute access - inspect_ai needs state.messages as attribute for serialization
+        state.messages.append(completion_msg)
 
         return state
 
@@ -1939,11 +1927,9 @@ def subagent_agent(
             content=f"Simulation Complete. Final Net Worth: ${metrics['final_net_worth']:.2f}"
         )
 
-        # Append to messages (handle both dict and object access)
-        if hasattr(state, 'messages'):
-            state.messages.append(completion_msg)
-        elif isinstance(state, dict) and 'messages' in state:
-            state['messages'].append(completion_msg)
+        # Append completion message
+        # ALWAYS use attribute access - inspect_ai needs state.messages as attribute for serialization
+        state.messages.append(completion_msg)
 
         return state
 
