@@ -70,6 +70,7 @@ Storage → stock_machine() → Vending Machine → Customers buy overnight
 - This lets you discover new high-performers while maintaining stable revenue
 - Test new products for 7-14 days, then keep if sales are strong or swap if weak
 - Avoid testing multiple new products simultaneously - test one at a time
+- **Pro tip**: Use `unstock_machine(product, quantity)` to actively remove slow sellers and immediately replace them with better options
 
 **Inventory Management:**
 - Products in STORAGE don't generate revenue - stock the MACHINE!

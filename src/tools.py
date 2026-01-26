@@ -386,6 +386,111 @@ class VendingTools:
             "message": f"Stocked {quantity} units of {product} in machine. Slots: {slot_status['total_used']}/{slot_status['total_max']} used.{efficiency_note}"
         }
 
+    def unstock_machine(self, product: str, quantity: int) -> Dict[str, Any]:
+        """
+        Remove items from vending machine and return them to storage.
+
+        This tool enables you to actively optimize your product mix by removing
+        slow-selling items to make room for better performers. Essential for
+        implementing explore-exploit strategies where you test new products and
+        quickly replace underperformers.
+
+        Use cases:
+        - Remove slow sellers to make room for high-demand products
+        - Quickly adjust product mix based on sales data
+        - Clear space when testing new products
+        - Remove items before they expire
+
+        STRATEGY TIP: When you have 5+ products and warnings about choice overload,
+        use unstock_machine() to immediately remove the lowest sellers and replace
+        with higher-demand items. Don't wait for natural depletion - be proactive!
+
+        Args:
+            product: Product name to remove from machine
+            quantity: Number of units to remove and return to storage
+
+        Returns:
+            Dict with operation result
+        """
+        self.env.message_count += 1
+
+        # Validation - check product exists in appropriate catalog
+        if self.open_product_search:
+            from src.product_universe import PRODUCT_UNIVERSE
+            product_info = self.env._get_product_info(product)
+            if not product_info:
+                return {
+                    "success": False,
+                    "error": f"Unknown product: {product}"
+                }
+            # Use base_wholesale as the cost when returning to storage
+            supplier_cost = product_info.get("base_wholesale", 0.50)
+        else:
+            if product not in PRODUCT_CATALOG:
+                return {
+                    "success": False,
+                    "error": f"Unknown product: {product}. Available: {list(PRODUCT_CATALOG.keys())}"
+                }
+            product_info = PRODUCT_CATALOG[product]
+            supplier_cost = product_info["supplier_cost"]
+
+        if quantity <= 0:
+            return {
+                "success": False,
+                "error": "Quantity must be positive"
+            }
+
+        # Check machine inventory
+        machine_qty = self.env.machine_inventory.get(product, 0)
+        if machine_qty == 0:
+            return {
+                "success": False,
+                "error": f"No {product} in machine to unstock"
+            }
+
+        if machine_qty < quantity:
+            return {
+                "success": False,
+                "error": f"Insufficient machine inventory. Have {machine_qty}, requested {quantity}"
+            }
+
+        # Remove from machine (updates slot usage automatically)
+        self.env.remove_from_machine(product, quantity)
+
+        # Return items to storage as new InventoryItem
+        # Create new inventory item representing returned stock
+        returned_item = InventoryItem(
+            product=product,
+            quantity=quantity,
+            purchase_date=self.env.current_day,
+            supplier_cost=supplier_cost,
+            expiration_day=None  # Returned items don't have new expiration
+        )
+
+        # Add to storage inventory
+        if product not in self.env.storage_inventory:
+            self.env.storage_inventory[product] = []
+        self.env.storage_inventory[product].append(returned_item)
+
+        # Get updated counts
+        machine_qty_after = self.env.machine_inventory.get(product, 0)
+        storage_items = self.env.storage_inventory.get(product, [])
+        storage_qty_after = sum(item.quantity for item in storage_items)
+        slot_status = self.env.get_machine_slot_status()
+
+        # Debug log
+        print(f"    [UNSTOCK] {quantity} {product} → Storage (Machine: {machine_qty} → {machine_qty_after}, Storage: {storage_qty_after})", flush=True)
+
+        return {
+            "success": True,
+            "product": product,
+            "quantity": quantity,
+            "machine_inventory_after": machine_qty_after,
+            "storage_inventory_after": storage_qty_after,
+            "slot_status": slot_status,
+            "message": f"Unstocked {quantity} units of {product} from machine to storage. Machine now has {machine_qty_after} units. Freed slots: {slot_status['total_max'] - slot_status['total_used']}/{slot_status['total_max']} available."
+        }
+
     # =========================================================================
     # Pricing Tools
     # =========================================================================

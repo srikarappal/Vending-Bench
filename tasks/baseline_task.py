@@ -1428,7 +1428,7 @@ What would you like to do?
         num_products = len([p for p, q in state['machine_inventory'].items() if q > 0]) if state['machine_inventory'] else 0
         if num_products >= 5:
             hints.append(f"⚠️ CRITICAL: You have {num_products} different products in the machine!")
-            hints.append(f"ACTION REQUIRED: Reduce to 3-4 products by removing the lowest sellers.")
+            hints.append(f"ACTION REQUIRED: Reduce to 3-4 products. Use unstock_machine() to remove lowest sellers.")
             hints.append(f"Consumer psychology research: Too many choices overwhelm customers, reducing purchases.")
             hints.append(f"💡 STRATEGY: Try 3 proven bestsellers + 1 experimental product to test new items while keeping revenue stable.")
 
