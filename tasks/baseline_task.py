@@ -1289,7 +1289,8 @@ You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
         })
 
         # Store results in state (full output capture)
-        state.metadata["simulation_results"] = {
+        # Handle both object and dict state types
+        simulation_results = {
             "final_metrics": metrics,
             "tool_calls": all_tool_calls,
             "model_outputs": all_model_outputs,  # Full model outputs with usage/reasoning
@@ -1299,6 +1300,15 @@ You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
             "model_name": model.name,
             "email_system_enabled": email_system_enabled
         }
+
+        try:
+            state.metadata["simulation_results"] = simulation_results
+        except (AttributeError, TypeError):
+            # If state is a dict, use dict-style access
+            if isinstance(state, dict):
+                if "metadata" not in state:
+                    state["metadata"] = {}
+                state["metadata"]["simulation_results"] = simulation_results
 
         # Add completion message
         completion_msg = ChatMessageAssistant(
