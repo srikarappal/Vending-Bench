@@ -175,8 +175,8 @@ def create_physical_tools(vending_tools: VendingTools) -> List[ToolDef]:
 
     return [
         ToolDef(tool=stock_machine, name="stock_machine",
-                description="Move items from storage to vending machine.",
-                parameters={"product": "Product name (coffee, chocolate, chips, soda)", "quantity": "Number of units to stock"}),
+                description="Move items from storage to vending machine. TIP: Stock 5-10 units per call instead of repeated 1-unit calls to reduce tool costs.",
+                parameters={"product": "Product name (coffee, chocolate, chips, soda)", "quantity": "Number of units to stock (recommend 5-10 per call)"}),
         ToolDef(tool=collect_cash, name="collect_cash",
                 description="Collect revenue from vending machine sales."),
         ToolDef(tool=get_machine_inventory, name="get_machine_inventory",
@@ -354,8 +354,8 @@ def create_open_search_tools(vending_tools: VendingTools) -> List[ToolDef]:
         ToolDef(tool=get_machine_inventory, name="get_machine_inventory",
                 description="Get inventory in vending machine."),
         ToolDef(tool=stock_machine, name="stock_machine",
-                description="Move items from storage to vending machine.",
-                parameters={"product": "Product ID", "quantity": "Units to move"}),
+                description="Move items from storage to vending machine. TIP: Stock 5-10 units per call instead of repeated 1-unit calls to reduce tool costs.",
+                parameters={"product": "Product ID", "quantity": "Units to move (recommend 5-10 per call)"}),
         ToolDef(tool=set_price, name="set_price",
                 description="Set retail price for a product.",
                 parameters={"product": "Product ID", "price": "Price in dollars"}),
@@ -539,8 +539,8 @@ def create_email_mode_tools(vending_tools: VendingTools) -> List[ToolDef]:
         ToolDef(tool=get_machine_inventory, name="get_machine_inventory",
                 description="Get inventory in vending machine (what customers can buy)."),
         ToolDef(tool=stock_machine, name="stock_machine",
-                description="Move items from storage to vending machine.",
-                parameters={"product": "Product name", "quantity": "Units to move"}),
+                description="Move items from storage to vending machine. TIP: Stock 5-10 units per call instead of repeated 1-unit calls to reduce tool costs.",
+                parameters={"product": "Product name", "quantity": "Units to move (recommend 5-10 per call)"}),
         ToolDef(tool=set_price, name="set_price",
                 description="Set retail price for a product.",
                 parameters={"product": "Product name", "price": "New price in dollars"}),
@@ -957,14 +957,17 @@ def baseline_agent(
         # Main agent-driven loop using inspect_ai's native abstractions
         while not env.is_complete:
             # Get messages - handle both object and dict access patterns
-            if hasattr(state, 'messages'):
+            try:
                 messages = state.messages
-            elif isinstance(state, dict) and 'messages' in state:
-                messages = state['messages']
-            else:
-                # Fallback - shouldn't happen but prevents crash
-                messages = [initial_message]
-                print(f"[WARNING] Could not access state.messages, using initial message only", flush=True)
+            except (AttributeError, KeyError, TypeError) as e:
+                # Try dict access
+                try:
+                    messages = state['messages']
+                except (KeyError, TypeError):
+                    # Last resort fallback
+                    messages = [initial_message]
+                    if config.verbose:
+                        print(f"[WARNING] Could not access state.messages (Day {env.current_day}): {type(e).__name__}", flush=True)
 
             # Apply token-aware context compaction if messages getting large
             # Match Andon Labs VendingBench 2 settings: 69k context window
@@ -1378,17 +1381,47 @@ DAILY OPERATING FEE: ${env.config.daily_fee:.2f} (charged each night)
 What would you like to do?
 """
     else:
-        # Daily briefing with helpful hints if stuck
+        # Daily briefing with adaptive strategic hints
         hints = []
+
+        # 1. Check for empty inventory
         if not state['machine_inventory'] and not state['storage_inventory']:
             if env.open_product_search:
                 hints.append("💡 TIP: Your machine and storage are empty! Use search_internet() to find suppliers.")
             elif env.email_system_enabled:
                 hints.append("💡 TIP: Your machine and storage are empty! Use search_suppliers() to find suppliers.")
-        elif state['storage_inventory'] and not state['machine_inventory']:
-            hints.append("💡 TIP: You have inventory in storage but machine is empty. Use stock_machine() to stock it!")
-        elif state['machine_inventory'] and sum(state['machine_inventory'].values()) < 3:
-            hints.append("💡 TIP: Your machine is low on inventory. Consider restocking soon.")
+
+        # 2. Check for dead capital (inventory in storage, not machine)
+        storage_total = sum(state['storage_inventory'].values()) if state['storage_inventory'] else 0
+        machine_total = sum(state['machine_inventory'].values()) if state['machine_inventory'] else 0
+
+        if storage_total > 0 and machine_total == 0:
+            hints.append("⚠️ WARNING: You have inventory in storage but machine is EMPTY! Use stock_machine() to stock it!")
+        elif storage_total > 50 and machine_total < 10:
+            hints.append(f"⚠️ WARNING: High storage inventory ({storage_total}u) but low machine stock ({machine_total}u). Stock the machine to generate revenue!")
+        elif machine_total < 3 and storage_total > 0:
+            hints.append("💡 TIP: Your machine is low on inventory. Consider restocking from storage.")
+
+        # 3. Check for too many product varieties (choice multiplier penalty)
+        num_products = len([p for p, q in state['machine_inventory'].items() if q > 0]) if state['machine_inventory'] else 0
+        if num_products >= 5:
+            hints.append(f"⚠️ WARNING: You have {num_products} different products in the machine. Research shows 3-4 products is optimal - too many choices can reduce overall sales!")
+
+        # 4. Check for cash flow issues
+        if state['cash_balance'] < 100 and env.current_day > 10:
+            hints.append("⚠️ CASH FLOW WARNING: Low cash balance. Focus on profitable items and avoid large orders.")
+
+        # 5. Check pricing (if available)
+        if state['prices']:
+            # Check if prices are set to 0 or very low
+            zero_prices = [p for p, price in state['prices'].items() if price <= 0.01]
+            if zero_prices:
+                hints.append(f"⚠️ PRICING ERROR: {', '.join(zero_prices)} priced at $0! Set competitive prices ($1.50-2.50).")
+
+            # Check if prices are extremely high
+            high_prices = [p for p, price in state['prices'].items() if price >= 4.00]
+            if high_prices:
+                hints.append(f"💡 TIP: {', '.join(high_prices)} priced very high (${state['prices'][high_prices[0]]:.2f}+). High prices may reduce sales.")
 
         hint_section = "\n" + "\n".join(hints) + "\n" if hints else ""
 

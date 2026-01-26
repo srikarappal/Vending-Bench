@@ -85,7 +85,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.4,
         "spoilage_days": 365,
-        "base_demand": 1.5,
+        "base_demand": 3.8,
     },
     "diet_coke_12oz": {
         "name": "Diet Coke 12oz can",
@@ -95,7 +95,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.4,
         "spoilage_days": 365,
-        "base_demand": 1.0,
+        "base_demand": 2.5,
     },
     "pepsi_12oz": {
         "name": "Pepsi 12oz can",
@@ -105,7 +105,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.4,
         "spoilage_days": 365,
-        "base_demand": 1.2,
+        "base_demand": 3.0,
     },
     "sprite_12oz": {
         "name": "Sprite 12oz can",
@@ -115,7 +115,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.4,
         "spoilage_days": 365,
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
     "dr_pepper_12oz": {
         "name": "Dr Pepper 12oz can",
@@ -125,7 +125,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.4,
         "spoilage_days": 365,
-        "base_demand": 0.7,
+        "base_demand": 1.8,
     },
 
     # =========================================================================
@@ -140,7 +140,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 730,  # 2 years
-        "base_demand": 2.0,
+        "base_demand": 5.0,
     },
     "sparkling_water_12oz": {
         "name": "Sparkling Water 12oz",
@@ -150,7 +150,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.3,
         "spoilage_days": 365,
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
 
     # =========================================================================
@@ -165,7 +165,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 3.50,
         "price_elasticity": -1.6,
         "spoilage_days": 365,
-        "base_demand": 1.0,
+        "base_demand": 2.5,
     },
     "monster_16oz": {
         "name": "Monster Energy 16oz can",
@@ -175,7 +175,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 3.00,
         "price_elasticity": -1.5,
         "spoilage_days": 365,
-        "base_demand": 1.2,
+        "base_demand": 3.0,
     },
     "rockstar_16oz": {
         "name": "Rockstar Energy 16oz can",
@@ -185,7 +185,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.75,
         "price_elasticity": -1.5,
         "spoilage_days": 365,
-        "base_demand": 0.6,
+        "base_demand": 1.5,
     },
 
     # =========================================================================
@@ -200,7 +200,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.3,
         "spoilage_days": 14,  # Short shelf life
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
     "apple_juice_12oz": {
         "name": "Apple Juice 12oz bottle",
@@ -210,7 +210,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.25,
         "price_elasticity": -1.3,
         "spoilage_days": 21,
-        "base_demand": 0.6,
+        "base_demand": 1.5,
     },
 
     # =========================================================================
@@ -225,7 +225,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.8,
         "spoilage_days": 1,  # Must be fresh
-        "base_demand": 2.5,
+        "base_demand": 6.2,
     },
     "hot_chocolate": {
         "name": "Hot Chocolate",
@@ -235,7 +235,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.5,
         "spoilage_days": 90,  # Powder packets
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
 
     # =========================================================================
@@ -250,7 +250,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 60,
-        "base_demand": 1.5,
+        "base_demand": 3.8,
     },
     "lays_bbq_1oz": {
         "name": "Lay's BBQ Chips 1oz",
@@ -260,7 +260,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 60,
-        "base_demand": 1.2,
+        "base_demand": 3.0,
     },
     "doritos_nacho_1oz": {
         "name": "Doritos Nacho Cheese 1oz",
@@ -270,7 +270,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.75,
         "price_elasticity": -1.3,
         "spoilage_days": 60,
-        "base_demand": 1.8,
+        "base_demand": 4.5,
     },
     "doritos_cool_ranch_1oz": {
         "name": "Doritos Cool Ranch 1oz",
@@ -280,7 +280,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.75,
         "price_elasticity": -1.3,
         "spoilage_days": 60,
-        "base_demand": 1.0,
+        "base_demand": 2.5,
     },
     "cheetos_crunchy_1oz": {
         "name": "Cheetos Crunchy 1oz",
@@ -290,7 +290,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 60,
-        "base_demand": 1.0,
+        "base_demand": 2.5,
     },
     "pringles_original": {
         "name": "Pringles Original 2.5oz",
@@ -300,7 +300,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.25,
         "price_elasticity": -1.3,
         "spoilage_days": 90,
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
 
     # =========================================================================
@@ -315,7 +315,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.5,
         "spoilage_days": 180,
-        "base_demand": 1.5,
+        "base_demand": 3.8,
     },
     "kitkat_bar": {
         "name": "KitKat Bar 1.5oz",
@@ -325,7 +325,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.5,
         "spoilage_days": 180,
-        "base_demand": 1.2,
+        "base_demand": 3.0,
     },
     "twix_bar": {
         "name": "Twix Bar 1.79oz",
@@ -335,7 +335,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.5,
         "spoilage_days": 180,
-        "base_demand": 1.0,
+        "base_demand": 2.5,
     },
     "mm_peanut": {
         "name": "M&M's Peanut 1.74oz",
@@ -345,7 +345,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.4,
         "spoilage_days": 270,
-        "base_demand": 1.0,
+        "base_demand": 2.5,
     },
     "reeses_cups": {
         "name": "Reese's Peanut Butter Cups",
@@ -355,7 +355,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.00,
         "price_elasticity": -1.5,
         "spoilage_days": 180,
-        "base_demand": 1.3,
+        "base_demand": 3.2,
     },
     "skittles_original": {
         "name": "Skittles Original 2.17oz",
@@ -365,7 +365,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.75,
         "price_elasticity": -1.3,
         "spoilage_days": 365,
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
     "starburst_original": {
         "name": "Starburst Original 2.07oz",
@@ -375,7 +375,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.75,
         "price_elasticity": -1.3,
         "spoilage_days": 365,
-        "base_demand": 0.6,
+        "base_demand": 1.5,
     },
 
     # =========================================================================
@@ -390,7 +390,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.75,
         "price_elasticity": -1.1,
         "spoilage_days": 365,
-        "base_demand": 0.5,
+        "base_demand": 1.2,
     },
     "altoids_mints": {
         "name": "Altoids Mints Tin",
@@ -400,7 +400,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.2,
         "spoilage_days": 730,
-        "base_demand": 0.3,
+        "base_demand": 0.8,
     },
 
     # =========================================================================
@@ -415,7 +415,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.75,
         "price_elasticity": -1.3,
         "spoilage_days": 180,
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
     "protein_bar_rxbar": {
         "name": "RXBar Protein Bar",
@@ -425,7 +425,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 3.25,
         "price_elasticity": -1.4,
         "spoilage_days": 180,
-        "base_demand": 0.5,
+        "base_demand": 1.2,
     },
     "trail_mix_pack": {
         "name": "Trail Mix 2oz pack",
@@ -435,7 +435,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.25,
         "price_elasticity": -1.2,
         "spoilage_days": 120,
-        "base_demand": 0.6,
+        "base_demand": 1.5,
     },
     "almonds_pack": {
         "name": "Roasted Almonds 1.5oz",
@@ -445,7 +445,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 2.50,
         "price_elasticity": -1.2,
         "spoilage_days": 120,
-        "base_demand": 0.4,
+        "base_demand": 1.0,
     },
     "granola_bar": {
         "name": "Nature Valley Granola Bar",
@@ -455,7 +455,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 180,
-        "base_demand": 0.7,
+        "base_demand": 1.8,
     },
 
     # =========================================================================
@@ -470,7 +470,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.75,
         "price_elasticity": -1.3,
         "spoilage_days": 90,
-        "base_demand": 0.8,
+        "base_demand": 2.0,
     },
     "chips_ahoy_pack": {
         "name": "Chips Ahoy! Cookies 2-pack",
@@ -480,7 +480,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.75,
         "price_elasticity": -1.3,
         "spoilage_days": 90,
-        "base_demand": 0.6,
+        "base_demand": 1.5,
     },
     "cheese_crackers": {
         "name": "Cheese Crackers Pack",
@@ -490,7 +490,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 1.50,
         "price_elasticity": -1.2,
         "spoilage_days": 90,
-        "base_demand": 0.5,
+        "base_demand": 1.2,
     },
 
     # =========================================================================
@@ -505,7 +505,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 10.00,
         "price_elasticity": -0.8,  # Less elastic - need-based
         "spoilage_days": 9999,  # No spoilage
-        "base_demand": 0.15,  # Low but high margin
+        "base_demand": 0.4,  # Low but high margin
     },
     "earbuds_basic": {
         "name": "Basic Wired Earbuds",
@@ -515,7 +515,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 12.00,
         "price_elasticity": -0.9,
         "spoilage_days": 9999,
-        "base_demand": 0.1,
+        "base_demand": 0.2,
     },
     "portable_charger": {
         "name": "Portable Phone Charger 2000mAh",
@@ -525,7 +525,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 18.00,
         "price_elasticity": -0.7,
         "spoilage_days": 9999,
-        "base_demand": 0.08,
+        "base_demand": 0.2,
     },
     "phone_stand": {
         "name": "Phone Stand/Holder",
@@ -535,7 +535,7 @@ PRODUCT_UNIVERSE: Dict[str, Dict[str, Any]] = {
         "typical_retail": 6.00,
         "price_elasticity": -0.9,
         "spoilage_days": 9999,
-        "base_demand": 0.05,
+        "base_demand": 0.1,
     },
 }
 

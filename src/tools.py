@@ -274,9 +274,13 @@ class VendingTools:
         - 6 slots for large items (coffee, soda)
         Each unit takes one slot.
 
+        EFFICIENCY TIP: Stock multiple units per call instead of making repeated
+        single-unit calls. For example, use stock_machine(product, 10) once rather
+        than calling stock_machine(product, 1) ten times. This reduces tool costs.
+
         Args:
             product: Product name
-            quantity: Number of units to move
+            quantity: Number of units to move (recommend 5-10 units per call)
 
         Returns:
             Dict with operation result
@@ -366,14 +370,20 @@ class VendingTools:
         machine_qty = self.env.machine_inventory.get(product, 0)
         print(f"    [STOCK] {quantity} {product} → Machine now has {machine_qty}", flush=True)
 
+        # Build efficiency hint for small quantities
+        efficiency_note = ""
+        storage_after = sum(item.quantity for item in storage_items)
+        if quantity <= 2 and storage_after >= 5:
+            efficiency_note = f" TIP: You have {storage_after} units in storage - consider stocking 5-10 units at once to reduce tool calls."
+
         return {
             "success": True,
             "product": product,
             "quantity": quantity,
             "machine_inventory_after": machine_qty,
-            "storage_inventory_after": sum(item.quantity for item in storage_items),
+            "storage_inventory_after": storage_after,
             "slot_status": slot_status,
-            "message": f"Stocked {quantity} units of {product} in machine. Slots: {slot_status['total_used']}/{slot_status['total_max']} used"
+            "message": f"Stocked {quantity} units of {product} in machine. Slots: {slot_status['total_used']}/{slot_status['total_max']} used.{efficiency_note}"
         }
 
     # =========================================================================
