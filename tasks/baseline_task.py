@@ -1322,7 +1322,11 @@ def _build_morning_briefing(env: VendingEnvironment, is_first_day: bool = False)
     def format_inventory(items_dict):
         if not items_dict:
             return "  (empty)"
-        return chr(10).join(f'  - {product}: {qty} units' for product, qty in items_dict.items())
+        # Filter out products with 0 units to avoid confusion
+        items_with_stock = {p: q for p, q in items_dict.items() if q > 0}
+        if not items_with_stock:
+            return "  (empty)"
+        return chr(10).join(f'  - {product}: {qty} units' for product, qty in items_with_stock.items())
 
     def format_prices(prices_dict):
         if not prices_dict:
