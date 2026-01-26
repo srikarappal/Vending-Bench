@@ -965,21 +965,21 @@ def baseline_agent(
         # Store the system prompt separately for context management
         system_message_text = f"{system_prompt}\n\n{morning_briefing}"
 
-        # Initialize messages - handle both object and dict state types
+        # Initialize messages - modify in-place to avoid serialization issues
         initial_message = ChatMessageUser(content=system_message_text)
 
-        # CRITICAL: State must have messages as an attribute, not just a dict key
-        # inspect_ai's serialization expects state.messages to be accessible as an attribute
-        try:
-            state.messages = [initial_message]
-        except (AttributeError, TypeError) as e:
-            # If we can't set state.messages as an attribute, something is wrong with the state object
-            # This should never happen with a proper TaskState object from inspect_ai
-            print(f"[CRITICAL ERROR] Cannot set state.messages as attribute: {type(state)}, error: {e}", flush=True)
-            # Try dict-style as last resort, but this will likely cause serialization errors later
-            if isinstance(state, dict):
-                state['messages'] = [initial_message]
-            else:
+        # CRITICAL: Modify state.messages in-place, never reassign
+        # inspect_ai TaskState.messages must be modified in-place to work with serialization
+        if hasattr(state, 'messages') and isinstance(state.messages, list):
+            # Clear and set initial message
+            state.messages.clear()
+            state.messages.append(initial_message)
+        else:
+            # First time initialization - this should only happen once
+            try:
+                state.messages = [initial_message]
+            except (AttributeError, TypeError) as e:
+                print(f"[CRITICAL ERROR] Cannot initialize state.messages: {type(state)}, error: {e}", flush=True)
                 raise
 
         # Main agent-driven loop using inspect_ai's native abstractions
@@ -1004,11 +1004,12 @@ def baseline_agent(
                 preserve_count = max(int(len(messages) * 0.61), 20)
                 system_msg = messages[0]
                 recent_msgs = messages[-preserve_count:]
-                messages = [system_msg] + recent_msgs
+                compacted = [system_msg] + recent_msgs
 
-                # Update state with compacted messages
-                # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
-                state.messages = messages
+                # Update state - modify in-place, do NOT reassign
+                state.messages.clear()
+                state.messages.extend(compacted)
+                messages = state.messages
 
             input_messages = messages
 
@@ -1054,8 +1055,9 @@ def baseline_agent(
 
             # Add assistant response to messages
             messages.append(output.message)
-            # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
-            state.messages = messages
+            # Update state - modify in-place, do NOT reassign
+            state.messages.clear()
+            state.messages.extend(messages)
 
             # Check if model made tool calls
             if output.message.tool_calls:
@@ -1065,9 +1067,9 @@ def baseline_agent(
                 tool_messages = execute_result.messages
                 messages.extend(tool_messages)
 
-                # Update state with new messages
-                # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
-                state.messages = messages
+                # Update state - modify in-place, do NOT reassign
+                state.messages.clear()
+                state.messages.extend(messages)
 
                 # Track tool calls with results for logging
                 for i, tc in enumerate(output.message.tool_calls):
@@ -1159,9 +1161,9 @@ def baseline_agent(
                                             briefing_message = ChatMessageUser(content=new_briefing)
                                             messages.append(briefing_message)
 
-                                            # Update state with the new briefing message
-                                            # ALWAYS set as attribute - inspect_ai needs state.messages as attribute
-                                            state.messages = messages
+                                            # Update state - modify in-place, do NOT reassign
+                                            state.messages.clear()
+                                            state.messages.extend(messages)
 
                                             # Print briefing to debug log so user can see adaptive warnings
                                             if config.verbose:
@@ -1179,8 +1181,9 @@ def baseline_agent(
                     )
                     messages.append(continuation_msg)
 
-                    # Update state - ALWAYS set as attribute
-                    state.messages = messages
+                    # Update state - modify in-place, do NOT reassign
+                    state.messages.clear()
+                    state.messages.extend(messages)
 
             # Check for bankruptcy
             if env.is_complete and env.consecutive_bankrupt_days >= env.bankruptcy_threshold:
@@ -1242,8 +1245,9 @@ You're bleeding $2/day in fees. Take action NOW or you'll go bankrupt!
                         hint_message = ChatMessageUser(content=hint_msg)
                         messages.append(hint_message)
 
-                        # Update state - ALWAYS set as attribute
-                        state.messages = messages
+                        # Update state - modify in-place, do NOT reassign
+                        state.messages.clear()
+                        state.messages.extend(messages)
 
                         print(f"  [SYSTEM HINT] Injected stuck agent help at Day {env.current_day}", flush=True)
 
@@ -1693,9 +1697,15 @@ def subagent_agent(
 
         # Initialize conversation with system prompt and morning briefing
         system_message_content = f"{system_prompt}\n\n{morning_briefing}"
-        state.messages = [
-            ChatMessageUser(content=system_message_content)
-        ]
+        initial_msg = ChatMessageUser(content=system_message_content)
+
+        # Modify state.messages in-place to avoid serialization issues
+        if hasattr(state, 'messages') and isinstance(state.messages, list):
+            state.messages.clear()
+            state.messages.append(initial_msg)
+        else:
+            # First time initialization
+            state.messages = [initial_msg]
 
         # Create token-aware compaction handler
         # Match Andon Labs VendingBench 2 settings: 69k context window, 61% preserve
