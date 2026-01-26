@@ -414,6 +414,10 @@ class VendingTools:
         """
         self.env.message_count += 1
 
+        # Debug print when --debug flag is used
+        if self.env.config.verbose:
+            print(f"    [DEBUG] unstock_machine() called with product='{product}', quantity={quantity} (Day {self.env.current_day})", flush=True)
+
         # Validation - check product exists in appropriate catalog
         if self.open_product_search:
             from src.product_universe import PRODUCT_UNIVERSE
