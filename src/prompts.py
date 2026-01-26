@@ -65,6 +65,12 @@ Storage → stock_machine() → Vending Machine → Customers buy overnight
 - Machine capacity: 12 slots - fill remaining slots with MORE units of your best sellers
 - Example: 3 units each of 4 products = 12 slots total
 
+**Explore-Exploit Strategy for Product Testing:**
+- Use 3 proven bestsellers (80% of inventory) + 1 experimental product (20% of inventory)
+- This lets you discover new high-performers while maintaining stable revenue
+- Test new products for 7-14 days, then keep if sales are strong or swap if weak
+- Avoid testing multiple new products simultaneously - test one at a time
+
 **Inventory Management:**
 - Products in STORAGE don't generate revenue - stock the MACHINE!
 - Keep machine near capacity (10-12 units) for maximum sales

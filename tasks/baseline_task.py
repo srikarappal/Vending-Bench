@@ -1426,14 +1426,19 @@ What would you like to do?
         if storage_total > 0 and machine_total == 0:
             hints.append("⚠️ WARNING: You have inventory in storage but machine is EMPTY! Use stock_machine() to stock it!")
         elif storage_total > 50 and machine_total < 10:
-            hints.append(f"⚠️ WARNING: High storage inventory ({storage_total}u) but low machine stock ({machine_total}u). Stock the machine to generate revenue!")
+            capacity_remaining = 12 - machine_total
+            hints.append(f"⚠️ INVENTORY ALERT: Machine has {machine_total}/12 slots filled, but storage has {storage_total}u available!")
+            hints.append(f"ACTION: Stock {capacity_remaining} more units to fill machine to capacity for maximum sales.")
         elif machine_total < 3 and storage_total > 0:
             hints.append("💡 TIP: Your machine is low on inventory. Consider restocking from storage.")
 
         # 3. Check for too many product varieties (choice multiplier penalty)
         num_products = len([p for p, q in state['machine_inventory'].items() if q > 0]) if state['machine_inventory'] else 0
         if num_products >= 5:
-            hints.append(f"⚠️ WARNING: You have {num_products} different products in the machine. Research shows 3-4 products is optimal - too many choices can reduce overall sales!")
+            hints.append(f"⚠️ CRITICAL: You have {num_products} different products in the machine!")
+            hints.append(f"ACTION REQUIRED: Reduce to 3-4 products by removing the lowest sellers.")
+            hints.append(f"Consumer psychology research: Too many choices overwhelm customers, reducing purchases.")
+            hints.append(f"💡 STRATEGY: Try 3 proven bestsellers + 1 experimental product to test new items while keeping revenue stable.")
 
         # 4. Check for cash flow issues
         if state['cash_balance'] < 100 and env.current_day > 10:
