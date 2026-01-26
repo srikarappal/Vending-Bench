@@ -1129,6 +1129,24 @@ def baseline_agent(
                                         if result.get("is_simulation_complete"):
                                             env.is_complete = True
                                             print(f"  Simulation complete at Day {new_day}", flush=True)
+
+                                        # FIX #6: Inject daily morning briefing after wait_for_next_day()
+                                        # This provides adaptive warnings and guidance each day
+                                        if not env.is_complete:
+                                            new_briefing = _build_morning_briefing(env, is_first_day=False)
+                                            briefing_message = ChatMessageUser(content=new_briefing)
+                                            messages.append(briefing_message)
+
+                                            # Update state with the new briefing message
+                                            if hasattr(state, 'messages'):
+                                                state.messages = messages
+                                            elif isinstance(state, dict):
+                                                state['messages'] = messages
+
+                                            # Print briefing to debug log so user can see adaptive warnings
+                                            if config.verbose:
+                                                print(new_briefing, flush=True)
+
                                 except (json.JSONDecodeError, TypeError):
                                     pass
                                 break  # Found the matching tool message, stop searching
