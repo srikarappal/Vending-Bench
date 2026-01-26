@@ -265,6 +265,10 @@ def create_open_search_tools(vending_tools: VendingTools) -> List[ToolDef]:
         result = vending_tools.stock_machine(product, quantity)
         return json.dumps(result)
 
+    async def unstock_machine(product: str, quantity: int) -> str:
+        result = vending_tools.unstock_machine(product, quantity)
+        return json.dumps(result)
+
     async def set_price(product: str, price: float) -> str:
         result = vending_tools.set_price(product, price)
         return json.dumps(result)
@@ -356,6 +360,9 @@ def create_open_search_tools(vending_tools: VendingTools) -> List[ToolDef]:
         ToolDef(tool=stock_machine, name="stock_machine",
                 description="Move items from storage to vending machine. TIP: Stock 5-10 units per call instead of repeated 1-unit calls to reduce tool costs.",
                 parameters={"product": "Product ID", "quantity": "Units to move (recommend 5-10 per call)"}),
+        ToolDef(tool=unstock_machine, name="unstock_machine",
+                description="Remove items from vending machine and return to storage. CRITICAL for optimizing product mix! Use this to immediately remove slow sellers when you have 5+ products causing choice overload. Don't wait for natural depletion - actively replace underperformers with better options.",
+                parameters={"product": "Product ID to remove", "quantity": "Units to remove and return to storage"}),
         ToolDef(tool=set_price, name="set_price",
                 description="Set retail price for a product.",
                 parameters={"product": "Product ID", "price": "Price in dollars"}),
@@ -454,6 +461,10 @@ def create_email_mode_tools(vending_tools: VendingTools) -> List[ToolDef]:
         result = vending_tools.stock_machine(product, quantity)
         return json.dumps(result)
 
+    async def unstock_machine(product: str, quantity: int) -> str:
+        result = vending_tools.unstock_machine(product, quantity)
+        return json.dumps(result)
+
     async def set_price(product: str, price: float) -> str:
         result = vending_tools.set_price(product, price)
         return json.dumps(result)
@@ -541,6 +552,9 @@ def create_email_mode_tools(vending_tools: VendingTools) -> List[ToolDef]:
         ToolDef(tool=stock_machine, name="stock_machine",
                 description="Move items from storage to vending machine. TIP: Stock 5-10 units per call instead of repeated 1-unit calls to reduce tool costs.",
                 parameters={"product": "Product name", "quantity": "Units to move (recommend 5-10 per call)"}),
+        ToolDef(tool=unstock_machine, name="unstock_machine",
+                description="Remove items from vending machine and return to storage. CRITICAL for optimizing product mix! Use this to immediately remove slow sellers when you have 5+ products causing choice overload. Don't wait for natural depletion - actively replace underperformers with better options.",
+                parameters={"product": "Product name to remove", "quantity": "Units to remove and return to storage"}),
         ToolDef(tool=set_price, name="set_price",
                 description="Set retail price for a product.",
                 parameters={"product": "Product name", "price": "New price in dollars"}),
@@ -606,6 +620,10 @@ def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
 
     async def stock_machine(product: str, quantity: int) -> str:
         result = vending_tools.stock_machine(product, quantity)
+        return json.dumps(result)
+
+    async def unstock_machine(product: str, quantity: int) -> str:
+        result = vending_tools.unstock_machine(product, quantity)
         return json.dumps(result)
 
     async def order_inventory(product: str, quantity: int) -> str:
@@ -687,6 +705,12 @@ def create_vending_tools(vending_tools: VendingTools) -> List[ToolDef]:
             name="stock_machine",
             description="Move items from storage to vending machine.",
             parameters={"product": "Product name (coffee, chocolate, chips, soda)", "quantity": "Number of units to stock"}
+        ),
+        ToolDef(
+            tool=unstock_machine,
+            name="unstock_machine",
+            description="Remove items from vending machine and return to storage. CRITICAL for optimizing product mix! Use this to immediately remove slow sellers when you have 5+ products causing choice overload. Don't wait for natural depletion - actively replace underperformers with better options.",
+            parameters={"product": "Product name to remove (coffee, chocolate, chips, soda)", "quantity": "Number of units to remove and return to storage"}
         ),
         ToolDef(
             tool=order_inventory,
